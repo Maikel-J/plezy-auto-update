@@ -43,6 +43,7 @@ jobs:
         run: python3 scripts/release/upstream_android.py discover --plan "$RELEASE_PLAN"
 
       - name: Prepare source while preserving the Android updater
+        id: prepare
         if: steps.discover.outputs.pending == 'true'
         run: |
           git config user.name 'github-actions[bot]'
@@ -62,7 +63,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
-          flutter-version: '3.47.1'
+          flutter-version: ${{ steps.prepare.outputs.flutter_version }}
           cache: true
           pub-cache: false
 

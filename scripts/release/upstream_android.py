@@ -49,6 +49,17 @@ def version(tag: str) -> str:
     return ".".join(str(int(part)) for part in match.groups())
 
 
+def is_latest_version(candidate: str, own: list[dict]) -> bool:
+    current = tuple(map(int, candidate.split(".")))
+    for release in own:
+        if release["draft"] or release["prerelease"]:
+            continue
+        match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)\+android\.\d+", release["tag_name"])
+        if match and tuple(map(int, match.groups())) > current:
+            return False
+    return True
+
+
 def select_release(upstream: list[dict], own: list[dict], latest_id: int) -> dict | None:
     stable = [r for r in upstream if not r["draft"] and not r["prerelease"]]
     completed = [MARKER.search(r.get("body") or "") for r in own if not r["draft"] and not r["prerelease"]]
@@ -129,7 +140,14 @@ def prepare(plan_path: Path) -> None:
         pubspec.write_text(text)
         PROVENANCE.write_text(json.dumps(plan, indent=2) + "\n")
         git("add", "pubspec.yaml", str(PROVENANCE))
+    workflow = Path(".github/workflows/build.yml").read_text()
+    sdk = re.search(r'''(?m)^\s*FLUTTER_VERSION:\s*["'](\d+\.\d+\.\d+)["']\s*$''', workflow)
+    if not sdk:
+        raise ValueError("Cannot resolve the merged source's pinned Flutter version")
+    plan["flutter_version"] = sdk[1]
     plan_path.write_text(json.dumps(plan, indent=2) + "\n")
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+        output.write(f"flutter_version={sdk[1]}\n")
     verify_updater()
 
 
@@ -181,7 +199,8 @@ def publish(plan_path: Path, assets: Path) -> None:
         "Android asks you to approve installation. Updates require the same signing key; the first updater-enabled build must be installed manually.\n\n"
         f"Source: `{plan['source_sha']}`\n\nAndroid build number: {plan['build_number']}\n\n{marker}\n"
     )
-    existing = next((r for r in releases(repo) if r["tag_name"] == tag), None)
+    own = releases(repo)
+    existing = next((r for r in own if r["tag_name"] == tag), None)
     if existing and not existing["draft"]:
         raise ValueError("Refusing to modify an already published release")
     if existing is None:
@@ -191,7 +210,8 @@ def publish(plan_path: Path, assets: Path) -> None:
     manifest = assets / "upstream-release.json"
     manifest.write_text(json.dumps(plan, indent=2) + "\n")
     run("gh", "release", "upload", tag, "--repo", repo, "--clobber", *map(str, paths), str(manifest), str(assets / "SHA256SUMS"))
-    run("gh", "release", "edit", tag, "--repo", repo, "--notes-file", str(notes), "--draft=false", "--latest")
+    latest = "true" if is_latest_version(plan["version"], own) else "false"
+    run("gh", "release", "edit", tag, "--repo", repo, "--notes-file", str(notes), "--draft=false", f"--latest={latest}")
     print(f"Published https://github.com/{repo}/releases/tag/{tag}")
 
 

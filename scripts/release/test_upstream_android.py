@@ -20,6 +20,13 @@ def completed(identity, date, **changes):
 
 
 class DiscoveryTest(unittest.TestCase):
+    def test_maintenance_release_does_not_replace_a_newer_latest(self):
+        own = [release(1, "2026-08-01T00:00:00Z", tag_name="v2.19.0+android.1")]
+        self.assertFalse(module.is_latest_version("2.18.1", own))
+        self.assertTrue(module.is_latest_version("2.20.0", own))
+        own[0]["draft"] = True
+        self.assertTrue(module.is_latest_version("2.18.1", own))
+
     def test_first_run_builds_only_latest_stable(self):
         releases = [release(1, "2026-08-01T00:00:00Z"), release(2, "2026-08-02T00:00:00Z")]
         self.assertEqual(module.select_release(releases, [], 2)["id"], 2)
