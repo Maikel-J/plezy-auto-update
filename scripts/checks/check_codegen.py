@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import difflib
 import shutil
 import subprocess
 import sys
@@ -132,6 +133,15 @@ def main(argv: list[str] | None = None) -> int:
             print("Generated files are out of date:", file=sys.stderr)
             for relative in sorted(stale):
                 print(f"  {relative}", file=sys.stderr)
+                before = caller_state.get(relative, b"").decode("utf-8", errors="replace").splitlines()
+                after = expected_state.get(relative, b"").decode("utf-8", errors="replace").splitlines()
+                # Show bounded source diffs so a failed CI check can be repaired
+                # without access to its temporary code-generation worktree.
+                diff = list(difflib.unified_diff(before, after, fromfile=relative, tofile=f"generated/{relative}", lineterm=""))
+                for line in diff[:120]:
+                    print(line)
+                if len(diff) > 120:
+                    print("  (remaining diff omitted)")
             print("Run 'scripts/codegen.sh' and commit the result.", file=sys.stderr)
             return 1
         return 0

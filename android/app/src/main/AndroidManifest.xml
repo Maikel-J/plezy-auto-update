@@ -7,9 +7,6 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:installLocation="auto">
     <uses-permission android:name="android.permission.INTERNET"/>
-    <!-- Only sideload builds with ENABLE_UPDATE_CHECK=true request this. -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"
-        tools:node="${updateInstallPermission}" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
 
 

@@ -1,0 +1,162 @@
+name: Upstream Android Releases
+run-name: Android release with in-app updater
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/upstream-android.yml'
+      - 'scripts/release/upstream_android.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-android-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'Maikel-J/plezy-auto-update' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout maintained fork
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Initialize temporary release paths
+        run: |
+          echo "RELEASE_PLAN=$RUNNER_TEMP/android-release-plan.json" >> "$GITHUB_ENV"
+          echo "RELEASE_ASSETS=$RUNNER_TEMP/android-release-assets" >> "$GITHUB_ENV"
+
+      - name: Discover next unpublished stable upstream release
+        id: discover
+        run: python3 scripts/release/upstream_android.py discover --plan "$RELEASE_PLAN"
+
+      - name: Prepare source while preserving the Android updater
+        if: steps.discover.outputs.pending == 'true'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          cp scripts/release/upstream_android.py "$RUNNER_TEMP/upstream_android.py"
+          python3 "$RUNNER_TEMP/upstream_android.py" prepare --plan "$RELEASE_PLAN"
+
+      - name: Setup Java
+        if: steps.discover.outputs.pending == 'true'
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Flutter
+        if: steps.discover.outputs.pending == 'true'
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: '3.47.1'
+          cache: true
+          pub-cache: false
+
+      - name: Install locked dependencies and regenerate source
+        if: steps.discover.outputs.pending == 'true'
+        run: |
+          flutter pub get --enforce-lockfile --no-example
+          scripts/codegen.sh
+          git diff -- lib/i18n/strings_en.g.dart
+          python3 "$RUNNER_TEMP/upstream_android.py" commit-source --plan "$RELEASE_PLAN"
+
+      - name: Check signing configuration
+        if: steps.discover.outputs.pending == 'true'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          python3 - <<'PY'
+          import os
+          names = ['ANDROID_KEYSTORE_BASE64', 'ANDROID_STORE_PASSWORD', 'ANDROID_KEY_PASSWORD', 'ANDROID_KEY_ALIAS']
+          missing = [name for name in names if not os.environ.get(name)]
+          if missing:
+              raise SystemExit('Configure these repository Actions secrets before publishing: ' + ', '.join(missing))
+          print('All four Android signing secrets are configured.')
+          PY
+
+      - name: Validate generated code, Dart tests, and analysis
+        if: steps.discover.outputs.pending == 'true'
+        run: |
+          scripts/codegen.sh --check
+          flutter test test/services/android_update_service_test.dart test/services/update_service_test.dart
+          flutter analyze --no-pub
+
+      - name: Validate Android update bridge and manifests
+        if: steps.discover.outputs.pending == 'true'
+        run: |
+          printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_HOME" > android/local.properties
+          cd android
+          ./gradlew :app:testDebugUnitTest --tests 'com.edde746.plezy.AppUpdateChannelTest' -x :app:compileFlutterBuildDebug
+
+      - name: Sign and build all three Android APKs
+        if: steps.discover.outputs.pending == 'true'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          key = Path(os.environ['RUNNER_TEMP']) / 'android-release-key.jks'
+          key.write_bytes(base64.b64decode(''.join(os.environ['ANDROID_KEYSTORE_BASE64'].split()), validate=True))
+          key.chmod(0o600)
+          def prop(value):
+              return value.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r').replace('=', '\\=').replace(':', '\\:').replace(' ', '\\ ')
+          values = {'storeFile': str(key), 'storePassword': os.environ['ANDROID_STORE_PASSWORD'],
+                    'keyPassword': os.environ['ANDROID_KEY_PASSWORD'], 'keyAlias': os.environ['ANDROID_KEY_ALIAS']}
+          properties = Path('android/key.properties')
+          properties.write_text(''.join(f'{name}={prop(value)}\n' for name, value in values.items()))
+          properties.chmod(0o600)
+          PY
+          flutter build apk --release --split-per-abi \
+            --dart-define=ENABLE_UPDATE_CHECK=true \
+            --dart-define=ANDROID_UPDATE_REPOSITORY="$GITHUB_REPOSITORY" \
+            --dart-define=GIT_COMMIT="$(git rev-parse HEAD)"
+          mkdir -p "$RELEASE_ASSETS"
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            cp "build/app/outputs/flutter-apk/app-$abi-release.apk" "$RELEASE_ASSETS/plezy-android-$abi.apk"
+            "$ANDROID_HOME/build-tools/36.1.0/apksigner" verify --verbose "$RELEASE_ASSETS/plezy-android-$abi.apk"
+          done
+          cd "$RELEASE_ASSETS"
+          sha256sum plezy-android-*.apk > SHA256SUMS
+
+      - name: Remove temporary signing files
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          Path('android/key.properties').unlink(missing_ok=True)
+          (Path(os.environ['RUNNER_TEMP']) / 'android-release-key.jks').unlink(missing_ok=True)
+          PY
+
+      - name: Preserve build artifacts
+        if: success() && steps.discover.outputs.pending == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: upstream-android-apks
+          path: ${{ runner.temp }}/android-release-assets
+          if-no-files-found: error
+
+      - name: Publish the complete signed Android release
+        if: success() && steps.discover.outputs.pending == 'true'
+        run: python3 "$RUNNER_TEMP/upstream_android.py" publish --plan "$RELEASE_PLAN" --assets "$RELEASE_ASSETS"

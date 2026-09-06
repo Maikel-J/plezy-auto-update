@@ -64,8 +64,9 @@ this feature.
   codes can make switching ABI appear to be a downgrade. Selection preserves
   process bitness and follows Android's supported ABI order.
 - The update feature remains gated by `ENABLE_UPDATE_CHECK`. Without that flag,
-  update UI is disabled and Gradle removes `REQUEST_INSTALL_PACKAGES` from the
-  merged manifest, preserving the existing store-build behavior.
+  update UI is disabled. Gradle adds a sideload manifest overlay containing
+  `REQUEST_INSTALL_PACKAGES` only for release builds with this flag. Store and
+  ordinary debug/profile manifests do not request package installation.
 - Android defaults to this fork's releases. Override
   `ANDROID_UPDATE_REPOSITORY=owner/repo` at build time for another fork. Desktop
   update feeds are unchanged.
@@ -79,3 +80,36 @@ release, and verify: ABI selection; allow/deny install permission; cancel/back;
 offline/truncated download; installer cancellation; successful update retaining
 settings and sign-ins; and rejection of a differently signed or older APK.
 Also inspect merged manifests with and without `ENABLE_UPDATE_CHECK=true`.
+
+## Automatic releases from upstream
+
+The **Upstream Android Releases** workflow checks `edde746/plezy` every hour
+(at minute 17) and can also be started from Actions → Run workflow. Installing
+or changing its workflow/helper on `main` starts the first build immediately.
+It starts with upstream's latest published stable release; subsequent runs
+process each new stable release in publication order, one per run. Drafts and
+prereleases are excluded. Completed published fork releases record upstream
+IDs, so failed builds/uploads are retried and completed releases are not rebuilt.
+
+Each build merges the upstream release tag into an isolated checkout of this
+fork's `main`, preserving the updater and other maintained fork changes. This
+does not reset `main` to the upstream tag or erase existing unreleased fork work.
+Merge conflicts require review and stop publication. Source is regenerated,
+committed, tested, and signed before publishing a release such as
+`v2.18.0+android.1`. The source tag includes the updater and build provenance;
+the workflow does not push source merges or version bumps back to `main`.
+
+The workflow requires four **repository Actions secrets**:
+`ANDROID_KEYSTORE_BASE64`, `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_PASSWORD`, and
+`ANDROID_KEY_ALIAS`. Reuse the same private release key for all builds. Nothing
+is published if any signing secret is absent. Workflow `GITHUB_TOKEN` handles
+GitHub release uploads; no personal access token is required.
+
+The three APKs, `SHA256SUMS`, and `upstream-release.json` are uploaded into a
+draft first, then published together. The Android version code increases over
+previous fork builds. If upload fails after tagging, the next attempt reuses
+that exact tagged source instead of moving the tag.
+
+Scheduled workflows must be enabled in Actions. GitHub may disable schedules
+on inactive public repositories after 60 days; re-enable the workflow if that
+happens. The existing multi-platform release workflow remains independent.

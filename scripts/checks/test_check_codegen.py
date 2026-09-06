@@ -194,6 +194,8 @@ esac
         result = self.run_codegen("--check")
 
         self.assertEqual(result.returncode, 1)
+        self.assertIn("+++ generated/lib/models/model.g.dart", result.stdout)
+        self.assertIn("+version two", result.stdout)
         self.assertEqual(
             result.stderr.splitlines(),
             [
