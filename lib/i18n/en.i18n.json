@@ -113,7 +113,14 @@
     "skipVersion": "Skip This Version",
     "viewRelease": "View Release",
     "latestVersion": "You are on the latest version",
-    "checkFailed": "Failed to check for updates"
+    "checkFailed": "Failed to check for updates",
+    "downloadAndInstall": "Download and Install",
+    "installExplanation": "Plezy will download the APK and open Android's installer. You may need to allow installs from Plezy. Android will ask you to confirm the update.",
+    "installPermissionDenied": "Installation permission was not granted. Try again and allow installs from Plezy in Android settings.",
+    "signatureMismatch": "This APK uses a different signing key. Install updates from the same source as your current app. Your installation has not been changed.",
+    "versionCodeNotNewer": "This APK's version code is not higher than your installed app. The release needs a newer Android build number.",
+    "installFailed": "Could not download or open the update. Check your connection and free storage, then try again. Your installation has not been changed.",
+    "noCompatibleApk": "This release has no compatible APK. You can view the release for manual installation instructions."
   },
   "settings": {
     "title": "Settings",

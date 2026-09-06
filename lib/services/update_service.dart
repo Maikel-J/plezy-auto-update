@@ -7,15 +7,19 @@ import 'package:plezy/utils/app_logger.dart';
 import 'package:plezy/utils/media_server_http_client.dart';
 import 'package:plezy/utils/platform_detector.dart';
 import 'base_shared_preferences_service.dart';
+import 'android_update_service.dart';
 
 /// Service to check for new versions on GitHub
 /// Only enabled when ENABLE_UPDATE_CHECK build flag is set
 ///
 /// On macOS (non-Homebrew) and installed Windows: delegates to Sparkle/WinSparkle
 /// via auto_updater for native update dialogs and in-app installs.
-/// On all other platforms: falls back to GitHub API check + browser link dialog.
+/// On Android: downloads a compatible release APK and opens the system installer.
+/// On other platforms: falls back to GitHub API check + browser link dialog.
 class UpdateService {
-  static const String _githubRepo = 'edde746/plezy';
+  static String get githubRepo => Platform.isAndroid
+      ? const String.fromEnvironment('ANDROID_UPDATE_REPOSITORY', defaultValue: 'Maikel-J/plezy-auto-update')
+      : 'edde746/plezy';
   static const String _feedUrl = 'https://cdn.jsdelivr.net/gh/edde746/plezy@appcast/appcast.xml';
 
   static const String _keySkippedVersion = 'update_skipped_version';
@@ -151,12 +155,13 @@ class UpdateService {
       }
 
       final response = await (client ?? httpClient).get(
-        'https://api.github.com/repos/$_githubRepo/releases/latest',
+        'https://api.github.com/repos/$githubRepo/releases/latest',
         headers: {'Accept': 'application/vnd.github+json'},
       );
 
       if (response.statusCode == 200) {
         final data = response.data;
+        if (data['draft'] == true || data['prerelease'] == true) return null;
         final latestVersion = data['tag_name'] as String;
 
         // Remove 'v' prefix if present
@@ -167,8 +172,17 @@ class UpdateService {
         if (hasUpdate) {
           // Check if this version was skipped
           final skippedVersion = await getSkippedVersion();
-          if (skippedVersion == cleanVersion) {
+          if (respectCooldown && skippedVersion == cleanVersion) {
             return null;
+          }
+
+          AndroidUpdateAsset? androidAsset;
+          if (Platform.isAndroid) {
+            androidAsset = AndroidUpdateAsset.select(
+              data['assets'] as List<dynamic>? ?? [],
+              await AndroidUpdateService.supportedAbis(),
+              githubRepo,
+            );
           }
 
           return {
@@ -179,6 +193,7 @@ class UpdateService {
             'releaseName': data['name'] as String? ?? 'Version $cleanVersion',
             'releaseNotes': data['body'] as String? ?? '',
             'publishedAt': data['published_at'] as String,
+            'androidAsset': androidAsset,
           };
         }
       }

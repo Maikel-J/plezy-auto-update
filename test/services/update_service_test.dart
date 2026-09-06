@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -95,4 +96,42 @@ void main() {
       );
     });
   }
+
+  test('manual check can rediscover a skipped version while startup respects skip', () async {
+    await UpdateService.skipVersion('2.19.0');
+    final client = MediaServerHttpClient(
+      client: MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'tag_name': 'v2.19.0',
+            'html_url': 'https://github.com/Maikel-J/plezy-auto-update/releases/tag/v2.19.0',
+            'published_at': '2026-09-06T00:00:00Z',
+            'assets': [],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      ),
+    );
+    addTearDown(client.close);
+    expect(await UpdateService.debugPerformUpdateCheck(respectCooldown: true, client: client), isNull);
+    final update = await UpdateService.debugPerformUpdateCheck(respectCooldown: false, client: client);
+    expect(update?['latestVersion'], '2.19.0');
+  });
+
+  test('draft and prerelease responses are ignored', () async {
+    for (final flag in ['draft', 'prerelease']) {
+      final client = MediaServerHttpClient(
+        client: MockClient(
+          (_) async => http.Response(
+            jsonEncode({'tag_name': 'v2.19.0', flag: true}),
+            200,
+            headers: {'content-type': 'application/json'},
+          ),
+        ),
+      );
+      addTearDown(client.close);
+      expect(await UpdateService.debugPerformUpdateCheck(respectCooldown: false, client: client), isNull);
+    }
+  });
 }
