@@ -377,6 +377,27 @@ class Translations$update$en {
 
 	/// en: 'Failed to check for updates'
 	String get checkFailed => 'Failed to check for updates';
+
+	/// en: 'Download and Install'
+	String get downloadAndInstall => 'Download and Install';
+
+	/// en: 'Plezy will download the APK and open Android's installer. You may need to allow installs from Plezy. Android will ask you to confirm the update.'
+	String get installExplanation => 'Plezy will download the APK and open Android\'s installer. You may need to allow installs from Plezy. Android will ask you to confirm the update.';
+
+	/// en: 'Installation permission was not granted. Try again and allow installs from Plezy in Android settings.'
+	String get installPermissionDenied => 'Installation permission was not granted. Try again and allow installs from Plezy in Android settings.';
+
+	/// en: 'This APK uses a different signing key. Install updates from the same source as your current app. Your installation has not been changed.'
+	String get signatureMismatch => 'This APK uses a different signing key. Install updates from the same source as your current app. Your installation has not been changed.';
+
+	/// en: 'This APK's version code is not higher than your installed app. The release needs a newer Android build number.'
+	String get versionCodeNotNewer => 'This APK\'s version code is not higher than your installed app. The release needs a newer Android build number.';
+
+	/// en: 'Could not download or open the update. Check your connection and free storage, then try again. Your installation has not been changed.'
+	String get installFailed => 'Could not download or open the update. Check your connection and free storage, then try again. Your installation has not been changed.';
+
+	/// en: 'This release has no compatible APK. You can view the release for manual installation instructions.'
+	String get noCompatibleApk => 'This release has no compatible APK. You can view the release for manual installation instructions.';
 }
 
 // Path: settings
@@ -7115,6 +7136,13 @@ extension on Translations {
 			'update.viewRelease' => 'View Release',
 			'update.latestVersion' => 'You are on the latest version',
 			'update.checkFailed' => 'Failed to check for updates',
+			'update.downloadAndInstall' => 'Download and Install',
+			'update.installExplanation' => 'Plezy will download the APK and open Android\'s installer. You may need to allow installs from Plezy. Android will ask you to confirm the update.',
+			'update.installPermissionDenied' => 'Installation permission was not granted. Try again and allow installs from Plezy in Android settings.',
+			'update.signatureMismatch' => 'This APK uses a different signing key. Install updates from the same source as your current app. Your installation has not been changed.',
+			'update.versionCodeNotNewer' => 'This APK\'s version code is not higher than your installed app. The release needs a newer Android build number.',
+			'update.installFailed' => 'Could not download or open the update. Check your connection and free storage, then try again. Your installation has not been changed.',
+			'update.noCompatibleApk' => 'This release has no compatible APK. You can view the release for manual installation instructions.',
 			'settings.title' => 'Settings',
 			'settings.supportDeveloper' => 'Support Plezy',
 			'settings.supportDeveloperDescription' => 'Donate via Liberapay to fund development',

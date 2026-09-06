@@ -7,6 +7,9 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:installLocation="auto">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Only sideload builds with ENABLE_UPDATE_CHECK=true request this. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"
+        tools:node="${updateInstallPermission}" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
 
 
@@ -81,6 +84,15 @@
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_provider_paths" />
+        </provider>
+        <provider
+            android:name=".UpdateFileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_file_paths" />
         </provider>
         <!-- Launcher shelf artwork. Not exported: readers reach it only through the
              per-URI read grants issued to CATEGORY_HOME packages by WatchNextProvider. -->

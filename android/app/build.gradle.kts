@@ -2,6 +2,7 @@ import java.io.FileInputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.Base64
 import java.util.Properties
 import java.util.UUID
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -287,6 +288,13 @@ android {
     versionCode = flutter.versionCode
     versionName = flutter.versionName
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    // Keep the sideload-only permission out of Play/Amazon builds. Flutter
+    // passes --dart-define values to Gradle as comma-separated base64 strings.
+    val updateChecksEnabled = (project.findProperty("dart-defines") as? String)
+      ?.split(",")
+      ?.map { String(Base64.getDecoder().decode(it), Charsets.UTF_8) }
+      ?.contains("ENABLE_UPDATE_CHECK=true") == true
+    manifestPlaceholders["updateInstallPermission"] = if (updateChecksEnabled) "merge" else "remove"
 
     externalNativeBuild {
       cmake {
