@@ -3,8 +3,16 @@ part of '../../video_player_screen.dart';
 extension _VideoPlayerPlaybackStartMethods on VideoPlayerScreenState {
   Future<void> _startPlayback() async {
     final currentPlayer = player;
-    if (!mounted || currentPlayer == null) return;
+    if (!mounted || _shuttingDown || currentPlayer == null) return;
     final attempt = _beginPlaybackAttempt(currentPlayer);
+    final watchTogether = _activeWatchTogetherSession();
+    final watchTogetherLease = widget.watchTogetherLease;
+    _watchTogetherLease = watchTogetherLease;
+    if (watchTogether != null && watchTogetherLease != null && watchTogetherLease.isCurrent) {
+      _watchTogetherProvider = watchTogether;
+      watchTogether.onPlayerMediaSwitched = _handlePlayerMediaSwitch;
+    }
+    bool isCurrentStart() => attempt.isCurrent && (watchTogetherLease == null || watchTogetherLease.isCurrent);
     _firstFrame.resetRenderedForAttempt();
     _hasFatalPlaybackError = false;
     // 503s observed from here on belong to this attempt's open.
@@ -51,7 +59,7 @@ extension _VideoPlayerPlaybackStartMethods on VideoPlayerScreenState {
           );
           if (elapsed > 60) {
             final watchFromStart = await _showWatchFromStartDialog(effectiveStart, nowEpoch);
-            if (!mounted) return;
+            if (!mounted || !attempt.isCurrent) return;
             if (watchFromStart == true) {
               offsetSeconds = useProgramStart ? offsetProgramStart : captureBuffer.seekStartSeconds.round();
             }
@@ -60,6 +68,7 @@ extension _VideoPlayerPlaybackStartMethods on VideoPlayerScreenState {
 
         // Build the stream URL (with optional offset for time-shift)
         final streamUrl = await session.streamUrlAt(offsetSeconds: offsetSeconds);
+        if (!attempt.isCurrent) return;
         if (streamUrl == null || !mounted) {
           throw PlaybackException(t.liveTv.failedToBuildStreamUrl, reason: PlaybackFailureReason.noPlayableSource);
         }
@@ -89,7 +98,7 @@ extension _VideoPlayerPlaybackStartMethods on VideoPlayerScreenState {
         _trackManager?.cacheExternalSubtitles(const []);
 
         await _initVideoFilterAndPip();
-        if (!mounted || player != currentPlayer) return;
+        if (!mounted || !attempt.isCurrent) return;
 
         if (mounted) {
           // Live TV never commits a PlaybackSession, so the session-derived
@@ -105,7 +114,7 @@ extension _VideoPlayerPlaybackStartMethods on VideoPlayerScreenState {
       } catch (e, st) {
         appLogger.e('Failed to start live TV playback', error: e, stackTrace: st);
         unawaited(_sendLiveTimeline('stopped'));
-        if (mounted) {
+        if (mounted && !_shuttingDown) {
           showErrorSnackBar(context, e.toString());
           unawaited(_handleBackButton());
         }
@@ -212,11 +221,11 @@ extension _VideoPlayerPlaybackStartMethods on VideoPlayerScreenState {
         subtitleSelection: subtitleSelection,
         headers: streamHeaders,
         isLocalMedia: _isOfflinePlayback,
-        isCurrent: () => attempt.isCurrent,
+        isCurrent: isCurrentStart,
         // When a Watch Together session is active the sync layer owns the
         // start: open paused everywhere and let the host coordinate one
         // simultaneous group start.
-        watchTogetherOwnsStart: _watchTogetherOwnsPlaybackStart,
+        watchTogetherOwnsStart: () => watchTogetherLease != null && _watchTogetherOwnsPlaybackStart(),
         resolveShouldAutoStart: (wtOwnsStart) => !wtOwnsStart,
         resumePosition: () => resumePosition,
         plexClient: () => plexClientForTracks,
@@ -245,12 +254,15 @@ extension _VideoPlayerPlaybackStartMethods on VideoPlayerScreenState {
           // Attach player to Watch Together session for sync (if in session).
           // With a frame-rate startup gate pending, sync readiness waits for
           // its release so the group start can't fire mid display switch.
-          if (mounted && !_isOfflinePlayback) {
-            if (wtOwnsStart && holdPlaybackStart) {
-              wtStartupHold = Completer<void>();
-            }
-            _attachToWatchTogetherSession(startupHold: wtStartupHold?.future);
-            _notifyWatchTogetherMediaChange();
+          if (isCurrentStart() && !_isOfflinePlayback && watchTogetherLease != null) {
+            _commitWatchTogetherSelection(
+              watchTogether,
+              watchTogetherLease,
+              _currentMetadata,
+              resumePosition ?? Duration.zero,
+            );
+            if (wtOwnsStart && holdPlaybackStart) wtStartupHold = Completer<void>();
+            _attachToWatchTogetherSession(lease: watchTogetherLease, startupHold: wtStartupHold?.future);
           }
           if (shouldAutoPlay && PlatformDetector.isAutomotive()) {
             await _playWithPlaybackIntent(currentPlayer);

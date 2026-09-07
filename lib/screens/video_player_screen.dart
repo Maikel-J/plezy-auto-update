@@ -116,6 +116,7 @@ import '../focus/key_event_utils.dart';
 import '../focus/transport_keys.dart';
 import '../i18n/strings.g.dart';
 import '../watch_together/providers/watch_together_provider.dart';
+import '../watch_together/services/watch_together_controller.dart';
 
 part 'video_player/parts/companion_remote.dart';
 part 'video_player/parts/display_matching.dart';
@@ -381,6 +382,7 @@ class VideoPlayerScreen extends StatefulWidget {
   /// explicit user selections.
   final String? preferredVersionSignature;
   final bool isOffline;
+  final WatchPlaybackLease? watchTogetherLease;
 
   /// Quality preset override for this playback. When `null`, the screen uses
   /// the user's [SettingsService.defaultQualityPreset].
@@ -410,6 +412,7 @@ class VideoPlayerScreen extends StatefulWidget {
     this.selectedQualityPreset,
     this.selectedAudioStreamId,
     this.live,
+    this.watchTogetherLease,
   });
 
   @override
@@ -437,6 +440,8 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
   String? _playerInitializationError;
   Future<void>? _playerInitializationOperation;
   int _playerInitializationGeneration = 0;
+  Future<void>? _shutdownOperation;
+  bool _shuttingDown = false;
   late MediaItem _currentMetadata;
   final EpisodeSessionState _episode = EpisodeSessionState();
 
@@ -643,7 +648,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
   late final MediaControlsScreenController _mediaControls = MediaControlsScreenController(
     manager: () => _mediaControlsManager,
     player: () => player,
-    isMounted: () => mounted,
+    isMounted: () => mounted && !_shuttingDown,
     isLive: widget.isLive,
     shouldSkipForPip: () => _shouldSkipForPip,
     isPlayerInitialized: () => _isPlayerInitialized,
@@ -676,6 +681,11 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
   bool _isPinchZooming = false;
   bool _pinchZoomChanged = false;
   WatchTogetherProvider? _watchTogetherProvider;
+  Object? _watchTogetherBinding;
+  WatchPlaybackLease? _watchTogetherLease;
+  int _userRateOperation = 0;
+  Future<void> _userRateMutation = Future<void>.value();
+  Completer<void>? _nativeSeekDrain;
 
   late final CompanionRemoteBinding _companionRemote = CompanionRemoteBinding(
     player: () => player,
@@ -768,15 +778,21 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
       this,
       _transitionGate.beginGeneration(isMediaReload: isMediaReload),
       currentPlayer,
-      trackMutationDrain,
+      Future.wait<void>([
+        trackMutationDrain,
+        _userRateMutation.catchError((Object error) {
+          appLogger.w('Playback rate change failed before source replacement', error: error);
+        }),
+      ]).then<void>((_) {}),
     );
   }
 
   bool _isCurrentPlaybackGeneration(int generation, Player currentPlayer) {
-    return mounted && player == currentPlayer && _transitionGate.generation == generation;
+    return mounted && !_shuttingDown && player == currentPlayer && _transitionGate.generation == generation;
   }
 
   Future<void> _playWithPlaybackIntent(Player currentPlayer) {
+    if (_shuttingDown) return Future<void>.value();
     if (!automotivePlaybackAllowedNow()) {
       _playbackIntentShouldPlay = false;
       appLogger.d('Playback blocked while Android Automotive app is not resumed');
@@ -801,6 +817,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
   }
 
   Future<void> _playOrPauseWithPlaybackIntent(Player currentPlayer) {
+    if (_shuttingDown) return Future<void>.value();
     if (!automotivePlaybackAllowedNow()) {
       appLogger.d('Play/pause requested while Android Automotive app is not resumed; keeping playback paused');
       return _pauseWithPlaybackIntent(currentPlayer);
@@ -830,16 +847,39 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
   @visibleForTesting
   PlayerChromeController get chromeController => _chromeController;
 
-  /// Lets reload-failure coverage assert the progress tracker was rebuilt and
-  /// which item it is bound to; the tracker itself is private screen state.
   @visibleForTesting
-  PlaybackProgressTracker? get debugProgressTrackerForTesting => _progressTracker;
+  void debugBindWatchTogetherForTesting() {
+    _attachToWatchTogetherSession(lease: widget.watchTogetherLease!);
+  }
+
+  @visibleForTesting
+  bool debugInterceptEofForTesting() => _eofRecovery.interceptEof(player!);
+
+  @visibleForTesting
+  bool get debugPlaybackParkedForTesting => _eofRecovery.parked;
+
+  @visibleForTesting
+  Future<void> debugSeekPlaybackForTesting(Duration position) => _seekPlayback(position);
+
+  @visibleForTesting
+  Future<void> debugWirePlayerStreamsForTesting() =>
+      _wirePlayerStreams(currentPlayer: player!, settingsService: SettingsService.instance, useExoPlayer: false);
 
   late final PlayerNavigationCoordinator _playerNavigationCoordinator;
 
   @override
   void initState() {
     super.initState();
+    PlaybackCoordinator.instance.registerVideoSession(shutdown: _shutdownVideo);
+    final launchLease = widget.watchTogetherLease;
+    if (launchLease != null) {
+      final watchTogether = context.read<WatchTogetherProvider?>();
+      if (watchTogether != null && watchTogether.isPlaybackLeaseCurrent(launchLease)) {
+        _watchTogetherProvider = watchTogether;
+        _watchTogetherLease = launchLease;
+        watchTogether.onPlayerMediaSwitched = _handlePlayerMediaSwitch;
+      }
+    }
     unawaited(AndroidExitDiagnostics.markUiState(AndroidUiState.player));
 
     // Fullscreen entered from here on is the player's to drop; whatever was
@@ -1042,6 +1082,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    if (_shuttingDown) return;
 
     switch (state) {
       case AppLifecycleState.inactive:
@@ -1090,6 +1131,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
   }
 
   Future<void> _startPlayerInitialization({required bool replaceCurrent}) {
+    if (_shuttingDown) return Future<void>.value();
     final activeOperation = _playerInitializationOperation;
     if (activeOperation != null) return activeOperation;
 
@@ -1118,7 +1160,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
   }
 
   bool _isPlayerInitializationCurrent(int generation) {
-    return mounted && generation == _playerInitializationGeneration;
+    return mounted && !_shuttingDown && generation == _playerInitializationGeneration;
   }
 
   bool _ownsPlayerInitializationAttempt(int generation, Player currentPlayer) {
@@ -1789,6 +1831,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
 
   @override
   void dispose() {
+    PlaybackCoordinator.instance.unregisterVideoSession(_shutdownVideo);
     unawaited(AndroidExitDiagnostics.markUiState(AndroidUiState.mainScreen));
     _playerInitializationGeneration++;
     _frameRate.dispose();
@@ -1799,17 +1842,8 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
 
     _companionRemote.unbind();
 
-    // Notify Watch Together guests that host is exiting the player.
-    // Use stored reference since context.read() may fail in dispose.
     final isReplacingWithVideo = _isReplacingWithVideo;
-    if (!isReplacingWithVideo &&
-        _watchTogetherProvider != null &&
-        _watchTogetherProvider!.isHost &&
-        _watchTogetherProvider!.isInSession) {
-      _watchTogetherProvider!.notifyHostExitedPlayer();
-    }
-
-    _detachFromWatchTogetherSession();
+    _detachFromWatchTogetherSession(exiting: !isReplacingWithVideo);
 
     _isBuffering.dispose();
     _firstFrame.dispose();
@@ -2090,7 +2124,6 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
   /// Navigate to a specific queue item (called from QueueSheet)
   Future<void> navigateToQueueItem(MediaItem metadata) async {
     if (!_canNavigateMediaItems()) return;
-    _notifyWatchTogetherMediaChange(metadata: metadata);
     await _navigateToEpisode(metadata);
   }
 
@@ -2252,6 +2285,55 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindin
       if (candidate.sourceStreamId == sourceStreamId) return candidate;
     }
     return null;
+  }
+
+  Future<void> _shutdownVideo() {
+    final existing = _shutdownOperation;
+    if (existing != null) return existing;
+    final completer = Completer<void>();
+    _shutdownOperation = completer.future;
+
+    // No await until producers and all source-operation gates are closed.
+    // Do not use route exit (dialogs/navigation) or resumable TV suspension.
+    _shuttingDown = true;
+    _isExiting.value = true;
+    _playbackIntentShouldPlay = false;
+    _playerInitializationGeneration++;
+    _transitionGate.bumpGeneration();
+    _transitionGate.completeIdleWaiters();
+    _tvSuspend.cancelGrace();
+    _episode.autoPlayTimer?.cancel();
+    _stillWatchingTimer?.cancel();
+    _http503Watchdog.disarm();
+    _liveSeek.cancel();
+    _live.cancelClockOpens();
+    _live.resumeTimelineOnResume = false;
+    _stopLiveTimelineUpdates();
+    _progressTracker?.stopTracking();
+    _companionRemote.unbind();
+    _detachFromWatchTogetherSession(exiting: true);
+    _detachPipStateListener();
+    _clearAutoPipEnteringCallback();
+    final cancellations = _cancelPlayerStreamSubscriptions(includeMediaControls: true);
+    final remoteCancellation = _appleTvPlayPauseSubscription?.cancel();
+    if (remoteCancellation != null) cancellations.add(remoteCancellation);
+    final sleepCancellation = _sleepTimerSubscription?.cancel();
+    if (sleepCancellation != null) cancellations.add(sleepCancellation);
+
+    final currentPlayer = player;
+    // The tracker snapshots duration, tracks, identity and position before
+    // yielding. Native stop may reset them. This also retains offline writes
+    // and the tracker's terminal watched-state settlement.
+    final stoppedReport = _sendStoppedProgressOnce(positionOverride: currentPlayer?.state.position);
+    unawaited(() async {
+      try {
+        await Future.wait<void>([stoppedReport, if (currentPlayer != null) currentPlayer.stop(), ...cancellations]);
+        completer.complete();
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    }());
+    return completer.future;
   }
 
   Future<void> _sendStoppedProgressOnce({Duration? positionOverride}) {
