@@ -21,6 +21,10 @@ GENERATED_TRANSLATIONS = {
     "lib/i18n/strings.g.dart",
     "lib/i18n/strings_en.g.dart",
 }
+# One-off updater validation build. This commit is reverted immediately after
+# the workflow is queued so normal hourly discovery remains unchanged.
+FORCE_UPSTREAM_TAG = "2.19.0"
+FORCE_PREVIOUS_BUILD = 148
 
 
 def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -84,8 +88,23 @@ def discover(plan_path: Path) -> None:
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) or repo == UPSTREAM:
         raise ValueError("This workflow must run in the fork repository")
     own = releases(repo)
+    upstream = releases(UPSTREAM)
     latest = api(f"repos/{UPSTREAM}/releases/latest")
-    release = select_release(releases(UPSTREAM), own, latest["id"])
+    if FORCE_UPSTREAM_TAG:
+        release = next(
+            (
+                r
+                for r in upstream
+                if r["tag_name"] == FORCE_UPSTREAM_TAG
+                and not r["draft"]
+                and not r["prerelease"]
+            ),
+            None,
+        )
+        if release is None:
+            raise ValueError(f"Cannot find forced upstream release {FORCE_UPSTREAM_TAG}")
+    else:
+        release = select_release(upstream, own, latest["id"])
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
         output.write(f"pending={'true' if release else 'false'}\n")
     if release is None:
@@ -102,7 +121,9 @@ def discover(plan_path: Path) -> None:
         "upstream_url": release["html_url"],
         "version": release_version,
         "release_tag": f"v{release_version}+android.1",
-        "previous_build": max(previous_builds, default=0),
+        "previous_build": FORCE_PREVIOUS_BUILD
+        if FORCE_UPSTREAM_TAG
+        else max(previous_builds, default=0),
     }
     collisions = [r for r in own if r["tag_name"] == plan["release_tag"]]
     if collisions and not all(r["draft"] and MARKER.search(r.get("body") or "") for r in collisions):
