@@ -1,3 +1,7 @@
+Additions of this fork:
+Added an build in updater, so I dont have to buy it in the play store. No guarantees on if it works, I mostly used this to try out the new chatgpt astra model.
+
+
 <h1>
   <img src="assets/plezy.png" alt="Plezy Logo" height="24" style="vertical-align: middle;" />
   Plezy
