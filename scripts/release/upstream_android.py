@@ -17,6 +17,10 @@ UPSTREAM = "edde746/plezy"
 MARKER = re.compile(r"<!-- plezy-upstream:(\d+) published:([^ ]+) build:(\d+) -->")
 VERSION = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 PROVENANCE = Path(".github/android-release-source.json")
+GENERATED_TRANSLATIONS = {
+    "lib/i18n/strings.g.dart",
+    "lib/i18n/strings_en.g.dart",
+}
 
 
 def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -128,8 +132,21 @@ def prepare(plan_path: Path) -> None:
         plan["upstream_sha"] = upstream_sha
         merge = run("git", "merge", "--no-commit", "--no-ff", upstream_sha, check=False)
         if merge.returncode:
-            conflicts = git("diff", "--name-only", "--diff-filter=U")
-            raise RuntimeError(f"Upstream merge needs review; no release will be published:\n{conflicts}\n{merge.stderr}")
+            conflicts = set(filter(None, git("diff", "--name-only", "--diff-filter=U").splitlines()))
+            unexpected = conflicts - GENERATED_TRANSLATIONS
+            if unexpected:
+                raise RuntimeError(
+                    "Upstream merge needs review; no release will be published:\n"
+                    + "\n".join(sorted(conflicts))
+                    + f"\n{merge.stderr}"
+                )
+            if not conflicts:
+                raise RuntimeError(f"Upstream merge failed without merge conflicts:\n{merge.stderr}")
+            # These files are generated from the merged translation sources. Take
+            # upstream's generated snapshots only to finish the merge; codegen runs
+            # immediately afterwards and regenerates the authoritative output.
+            run("git", "checkout", "--theirs", "--", *sorted(conflicts))
+            run("git", "add", "--", *sorted(conflicts))
         pubspec = Path("pubspec.yaml")
         text = pubspec.read_text()
         match = re.search(r"(?m)^version: ([^\s+]+)\+(\d+)\s*$", text)
