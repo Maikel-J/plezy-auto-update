@@ -11,6 +11,9 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    # Vendored packages have separate dev-dependency analyzer contexts.
+    - packages/**/pigeons/**
+    - packages/**/test/**
 
 linter:
   rules:
