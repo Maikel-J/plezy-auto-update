@@ -10,6 +10,8 @@ on:
     paths:
       - '.github/workflows/upstream-android.yml'
       - 'scripts/release/upstream_android.py'
+      - 'scripts/release/ensure_gpl_release.py'
+      - 'FORK_NOTICE.md'
 
 permissions:
   contents: read
@@ -32,6 +34,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+
+      - name: Normalize GPL and source notices on existing releases
+        run: python3 scripts/release/ensure_gpl_release.py
 
       - name: Initialize temporary release paths
         run: |
@@ -161,3 +166,7 @@ jobs:
       - name: Publish the complete signed Android release
         if: success() && steps.discover.outputs.pending == 'true'
         run: python3 "$RUNNER_TEMP/upstream_android.py" publish --plan "$RELEASE_PLAN" --assets "$RELEASE_ASSETS"
+
+      - name: Normalize GPL and source notice on published releases
+        if: success()
+        run: python3 scripts/release/ensure_gpl_release.py
