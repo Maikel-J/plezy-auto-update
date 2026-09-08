@@ -1,6 +1,11 @@
 name: Sync Upstream Main
 run-name: Merge edde746/plezy main into fork
 
+# FORK POLICY: This fork is Android-only. The sync job deliberately preserves the
+# four workflow files in WORKFLOW_ALLOWLIST from this fork and removes every other
+# upstream workflow YAML before pushing. Do not broaden this allowlist for iOS,
+# macOS, Linux, Windows, web, desktop packaging, or non-Android distribution.
+
 on:
   schedule:
     - cron: '5 * * * *'
@@ -26,7 +31,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Merge upstream main without credentials
+      - name: Merge upstream main and enforce Android-only workflows
         id: merge
         shell: bash
         run: |
@@ -44,8 +49,63 @@ jobs:
             exit 0
           fi
 
-          git merge --no-edit upstream/main
-          git diff --check HEAD^ HEAD
+          FORK_HEAD="$(git rev-parse HEAD)"
+          WORKFLOW_ALLOWLIST=(
+            '.github/workflows/build.yml'
+            '.github/workflows/ci.yml'
+            '.github/workflows/upstream-android.yml'
+            '.github/workflows/sync-upstream.yml'
+          )
+
+          set +e
+          git merge --no-commit --no-ff upstream/main
+          MERGE_STATUS=$?
+          set -e
+
+          if [ "$MERGE_STATUS" -ne 0 ]; then
+            mapfile -t CONFLICTS < <(git diff --name-only --diff-filter=U)
+            for path in "${CONFLICTS[@]}"; do
+              case "$path" in
+                .github/workflows/*.yml|.github/workflows/*.yaml)
+                  ;;
+                *)
+                  echo "Upstream source conflict requires review: $path" >&2
+                  git merge --abort
+                  exit 1
+                  ;;
+              esac
+            done
+          fi
+
+          # Preserve the fork-maintained Android workflow definitions exactly.
+          for path in "${WORKFLOW_ALLOWLIST[@]}"; do
+            git checkout "$FORK_HEAD" -- "$path"
+          done
+
+          # Remove every workflow YAML not explicitly allowed above. This prevents
+          # future upstream merges from silently reintroducing non-Android Actions.
+          while IFS= read -r path; do
+            allowed=false
+            for keep in "${WORKFLOW_ALLOWLIST[@]}"; do
+              if [ "$path" = "$keep" ]; then
+                allowed=true
+                break
+              fi
+            done
+            if [ "$allowed" = false ]; then
+              git rm -f --ignore-unmatch -- "$path"
+            fi
+          done < <(find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) -print | sort)
+
+          if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
+            echo 'Unresolved merge conflicts remain; refusing to push.' >&2
+            git merge --abort
+            exit 1
+          fi
+
+          git add -A .github/workflows
+          git diff --check --cached
+          git commit -m 'chore: sync upstream main (Android-only fork)'
           echo 'changed=true' >> "$GITHUB_OUTPUT"
 
       - name: Push clean merge with short-lived authentication
