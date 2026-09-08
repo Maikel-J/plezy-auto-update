@@ -20,12 +20,14 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - name: Checkout maintained fork
+      - name: Checkout maintained fork without persisted credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Merge upstream main
+      - name: Merge upstream main without credentials
+        id: merge
         shell: bash
         run: |
           set -euo pipefail
@@ -38,14 +40,21 @@ jobs:
 
           if git merge-base --is-ancestor upstream/main HEAD; then
             echo 'Fork main already contains upstream main.'
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           git merge --no-edit upstream/main
+          git diff --check HEAD^ HEAD
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
 
-          if git diff --check HEAD^ HEAD; then
-            git push origin HEAD:main
-          else
-            echo 'Merge introduced whitespace errors; refusing to push.' >&2
-            exit 1
-          fi
+      - name: Push clean merge with short-lived authentication
+        if: steps.merge.outputs.changed == 'true'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          AUTH="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          trap 'unset AUTH GITHUB_TOKEN' EXIT
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $AUTH" push https://github.com/${GITHUB_REPOSITORY}.git HEAD:main
