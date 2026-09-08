@@ -157,7 +157,6 @@ jobs:
           java-version: '21'
 
       - name: Validate unsigned APK identity
-        id: plan
         env:
           RELEASE_ASSETS: ${{ runner.temp }}/android-release-unsigned
         run: |
@@ -176,19 +175,17 @@ jobs:
           build = plan.get('build_number')
           if not isinstance(build, int) or build <= 0:
               raise SystemExit('Invalid Android build number')
-          out = Path(os.environ['GITHUB_OUTPUT'])
-          with out.open('a') as stream:
-              stream.write(f'version={version}\n')
-              stream.write(f'build_number={build}\n')
           PY
+          VERSION="$(python3 -c 'import json,os; print(json.load(open(os.path.join(os.environ["RELEASE_ASSETS"], "upstream-release.json")))["version"])')"
+          BUILD_NUMBER="$(python3 -c 'import json,os; print(json.load(open(os.path.join(os.environ["RELEASE_ASSETS"], "upstream-release.json")))["build_number"])')"
           APKANALYZER="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
           test -x "$APKANALYZER"
           for abi in arm64-v8a armeabi-v7a x86_64; do
             apk="$RELEASE_ASSETS/plezy-android-$abi-unsigned.apk"
             test -s "$apk"
             test "$("$APKANALYZER" manifest application-id "$apk")" = 'com.edde746.plezy'
-            test "$("$APKANALYZER" manifest version-name "$apk")" = '${{ steps.plan.outputs.version }}'
-            test "$("$APKANALYZER" manifest version-code "$apk")" = '${{ steps.plan.outputs.build_number }}'
+            test "$("$APKANALYZER" manifest version-name "$apk")" = "$VERSION"
+            test "$("$APKANALYZER" manifest version-code "$apk")" = "$BUILD_NUMBER"
           done
 
       - name: Sign and verify APKs in isolated step
@@ -270,7 +267,6 @@ jobs:
           path: ${{ runner.temp }}/android-release-signed
 
       - name: Validate release plan and source bundle
-        id: plan
         env:
           RELEASE_ASSETS: ${{ runner.temp }}/android-release-signed
         run: |
@@ -309,13 +305,12 @@ jobs:
               apk = assets / f'plezy-android-{abi}.apk'
               if not apk.is_file() or not apk.stat().st_size:
                   raise SystemExit(f'Missing signed APK for {abi}')
-          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
-              output.write(f'source_sha={source}\n')
           PY
+          SOURCE_SHA="$(python3 -c 'import json,os; print(json.load(open(os.path.join(os.environ["RELEASE_ASSETS"], "upstream-release.json")))["source_sha"])')"
           git fetch "$RELEASE_ASSETS/source.bundle" HEAD
-          test "$(git rev-parse FETCH_HEAD)" = '${{ steps.plan.outputs.source_sha }}'
+          test "$(git rev-parse FETCH_HEAD)" = "$SOURCE_SHA"
           git checkout --detach FETCH_HEAD
-          test "$(git rev-parse HEAD)" = '${{ steps.plan.outputs.source_sha }}'
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           git grep -q 'ANDROID_UPDATE_REPOSITORY' -- lib/services/update_service.dart
           git grep -q 'AndroidUpdateAsset.select' -- lib/services/update_service.dart
           git grep -q 'downloadAndInstall' -- lib/utils/update_dialog.dart
