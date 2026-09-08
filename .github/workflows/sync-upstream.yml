@@ -1,0 +1,51 @@
+name: Sync Upstream Main
+run-name: Merge edde746/plezy main into fork
+
+on:
+  schedule:
+    - cron: '5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'Maikel-J/plezy-auto-update' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout maintained fork
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Merge upstream main
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git remote add upstream https://github.com/edde746/plezy.git
+          git fetch --no-tags upstream main
+
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo 'Fork main already contains upstream main.'
+            exit 0
+          fi
+
+          git merge --no-edit upstream/main
+
+          if git diff --check HEAD^ HEAD; then
+            git push origin HEAD:main
+          else
+            echo 'Merge introduced whitespace errors; refusing to push.' >&2
+            exit 1
+          fi
