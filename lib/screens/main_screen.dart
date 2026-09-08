@@ -44,6 +44,7 @@ import '../providers/multi_server_provider.dart';
 import '../providers/hidden_libraries_provider.dart';
 import '../providers/libraries_provider.dart';
 import '../providers/playback_state_provider.dart';
+import '../providers/seerr_account_provider.dart';
 import '../widgets/settings_builder.dart';
 import '../widgets/tv_virtual_keyboard.dart';
 import '../services/api_cache.dart';
@@ -370,6 +371,7 @@ class _MainScreenState extends State<MainScreen>
     with RouteAware, WindowListener, WidgetsBindingObserver, MountedSetStateMixin {
   NavigationTabId _currentTab = NavigationTabId.discover;
   String? _selectedLibraryGlobalKey;
+  Future<void>? _windowCloseFuture;
 
   /// Whether the app is in offline mode (no server connection)
   bool _isOffline = false;
@@ -1110,20 +1112,27 @@ class _MainScreenState extends State<MainScreen>
 
   @override
   void onWindowClose() {
-    unawaited(_exitOnWindowClose());
+    unawaited(
+      _windowCloseFuture ??= _exitOnWindowClose().whenComplete(() {
+        _windowCloseFuture = null;
+      }),
+    );
   }
 
-  /// `setPreventClose(true)` hands the window's close button to us, so the app
-  /// has to shut itself down. A bare `exit(0)` killed the process before the
-  /// app-level teardown could run — including the terminal playback report that
-  /// trackers owning their own watched semantics depend on.
+  /// The root exit observer owns the shutdown deadline. Do not time out its
+  /// dispatch here or interpret a canceled close as permission to force exit.
   Future<void> _exitOnWindowClose() async {
     try {
-      await AppExitService.requestGracefulExit().timeout(const Duration(seconds: 5));
+      await AppExitService.requestGracefulExit();
     } catch (e, st) {
-      appLogger.w('Graceful window close failed; exiting immediately', error: e, stackTrace: st);
+      appLogger.w('Graceful window close failed; destroying window', error: e, stackTrace: st);
+      try {
+        await windowManager.destroy().timeout(const Duration(seconds: 3));
+      } catch (fallbackError, fallbackStack) {
+        appLogger.e('Window destruction failed; forcing exit', error: fallbackError, stackTrace: fallbackStack);
+        exit(1);
+      }
     }
-    exit(0);
   }
 
   @override
@@ -1131,6 +1140,11 @@ class _MainScreenState extends State<MainScreen>
     // Always consume: the gates latch backgrounding on every lifecycle event.
     final resumedFromBackground = _profileSelectionResumeGate.consumePromptOn(state);
     final refreshStaleContent = _contentRefreshResumeGate.consumeRefreshOn(state);
+    // Seerr authority is independent of media-server reachability and stale
+    // content. A grant must recover hidden Request actions on any real resume.
+    if (resumedFromBackground && mounted) {
+      unawaited(context.read<SeerrAccountProvider?>()?.refreshUser());
+    }
     if (shouldShowProfileSelectionOnResume(
       resumedFromBackground: resumedFromBackground,
       isOffline: _isOffline,

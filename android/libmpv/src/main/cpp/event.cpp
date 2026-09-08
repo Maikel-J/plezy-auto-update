@@ -11,7 +11,8 @@
 // starts (event_thread_bind). Kotlin drops a callback whose session is not
 // the wrapper it published for, so a retiring core's tail — end-file,
 // property changes, a hook raised just before teardown — can never be read
-// as the successor's.
+// as the successor's. L keeps this binding immutable through join, including
+// the interval after admission is revoked; callbacks never acquire L.
 static mpv_handle* thread_mpv;
 static uint64_t thread_session;
 
@@ -70,9 +71,11 @@ static void sendEndFileToJava(JNIEnv* env, mpv_event* event) {
   mpv_event_end_file* end_file = (mpv_event_end_file*)event->data;
   const int reason = end_file ? end_file->reason : -1;
   const int64_t source_id = end_file ? end_file->playlist_entry_id : 0;
+  // mpv_error code when reason is MPV_END_FILE_REASON_ERROR, 0 otherwise.
+  const int error = end_file ? end_file->error : 0;
   env->CallStaticVoidMethod(
       mpv_MpvPlayer, mpv_MpvPlayer_onEndFile, (jlong)thread_session, (jint)reason, (jlong)source_id,
-      end_file ? JNI_TRUE : JNI_FALSE);
+      end_file ? JNI_TRUE : JNI_FALSE, (jint)error);
 }
 
 static void sendLogMessageToJava(JNIEnv* env, mpv_event_log_message* msg) {
