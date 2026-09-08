@@ -10,6 +10,11 @@ on:
   schedule:
     - cron: '5 * * * *'
   workflow_dispatch:
+  # Updating this fork-maintained workflow should also perform an immediate sync.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sync-upstream.yml'
 
 permissions:
   contents: write
