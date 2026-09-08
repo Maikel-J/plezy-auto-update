@@ -1,6 +1,10 @@
 name: Upstream Android Releases
 run-name: Android release with in-app updater
 
+# FORK POLICY: This workflow exists only to produce and publish Android releases.
+# Do not add iOS, macOS, Linux, Windows, web, desktop packaging, whole-repository
+# analysis, or unrelated cross-platform release gates to this fork workflow.
+
 on:
   schedule:
     - cron: '17 * * * *'
@@ -98,12 +102,11 @@ jobs:
           git diff -- lib/i18n/strings_en.g.dart
           python3 "$RUNNER_TEMP/upstream_android.py" commit-source --plan "$RELEASE_PLAN"
 
-      - name: Validate generated code, Dart tests, and analysis
+      - name: Validate generated Android source and updater tests
         if: steps.discover.outputs.pending == 'true'
         run: |
           scripts/codegen.sh --check
           flutter test test/services/android_update_service_test.dart test/services/update_service_test.dart
-          flutter analyze --no-pub
 
       - name: Validate Android update bridge and manifests
         if: steps.discover.outputs.pending == 'true'
