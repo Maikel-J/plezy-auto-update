@@ -2488,6 +2488,12 @@ class Translations$subtitlingStyling$en {
 	/// en: 'Bottom'
 	String get positionBottom => 'Bottom';
 
+	/// en: 'Use margins'
+	String get useMargins => 'Use margins';
+
+	/// en: 'Allow text subtitles in the space outside the video. Styled subtitles may keep their original placement.'
+	String get useMarginsDescription => 'Allow text subtitles in the space outside the video. Styled subtitles may keep their original placement.';
+
 	/// en: 'Anchor to Screen'
 	String get anchorToScreen => 'Anchor to Screen';
 
@@ -7842,6 +7848,8 @@ extension on Translations {
 			'subtitlingStyling.overrideStrip' => 'Remove styling',
 			'subtitlingStyling.positionTop' => 'Top',
 			'subtitlingStyling.positionBottom' => 'Bottom',
+			'subtitlingStyling.useMargins' => 'Use margins',
+			'subtitlingStyling.useMarginsDescription' => 'Allow text subtitles in the space outside the video. Styled subtitles may keep their original placement.',
 			'subtitlingStyling.anchorToScreen' => 'Anchor to Screen',
 			'subtitlingStyling.anchorToScreenDescription' => 'Show text subtitles in the black bars below widescreen video',
 			'subtitlingStyling.bold' => 'Bold',
@@ -8067,10 +8075,10 @@ extension on Translations {
 			'libraries.confirmActionMessage' => 'Are you sure you want to perform this action?',
 			'libraries.showLibrary' => 'Show library',
 			'libraries.hideLibrary' => 'Hide library',
-			'libraries.libraryOptions' => 'Library options',
-			'libraries.content' => 'library content',
 			_ => null,
 		} ?? switch (path) {
+			'libraries.libraryOptions' => 'Library options',
+			'libraries.content' => 'library content',
 			'libraries.selectLibrary' => 'Select library',
 			'libraries.filtersWithCount' => ({required Object count}) => 'Filters (${count})',
 			'libraries.noRecommendations' => 'No recommendations available',
@@ -8581,10 +8589,10 @@ extension on Translations {
 			'downloads.resumeDownload' => 'Resume download',
 			'downloads.cancelledDownload' => 'Canceled download',
 			'downloads.syncingFile' => ({required Object file, required Object status}) => '${file} (syncing ${status})',
-			'downloads.downloadedFileClickToComplete' => ({required Object file}) => 'Downloaded ${file} - Click to complete',
-			'downloads.partialDownloadClickToComplete' => 'Partially downloaded - Click to complete',
 			_ => null,
 		} ?? switch (path) {
+			'downloads.downloadedFileClickToComplete' => ({required Object file}) => 'Downloaded ${file} - Click to complete',
+			'downloads.partialDownloadClickToComplete' => 'Partially downloaded - Click to complete',
 			'downloads.deleting' => 'Deleting...',
 			'downloads.deletingWithProgress' => ({required Object title, required Object current, required Object total}) => 'Deleting ${title}... (${current} of ${total})',
 			'downloads.queuedTooltip' => 'Queued',
