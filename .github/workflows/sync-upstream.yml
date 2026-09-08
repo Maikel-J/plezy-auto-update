@@ -5,6 +5,8 @@ run-name: Merge edde746/plezy main into fork
 # four workflow files in WORKFLOW_ALLOWLIST from this fork and removes every other
 # upstream workflow YAML before pushing. Do not broaden this allowlist for iOS,
 # macOS, Linux, Windows, web, desktop packaging, or non-Android distribution.
+# Generated translation conflicts are resolved only by deterministic regeneration;
+# any real source-code conflict aborts the sync for manual/agent review.
 
 on:
   schedule:
@@ -19,6 +21,9 @@ on:
 permissions:
   contents: write
 
+env:
+  FLUTTER_VERSION: '3.47.1'
+
 concurrency:
   group: sync-upstream-main
   cancel-in-progress: false
@@ -27,7 +32,7 @@ jobs:
   sync:
     if: github.repository == 'Maikel-J/plezy-auto-update' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Checkout maintained fork without persisted credentials
@@ -35,6 +40,14 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Setup Flutter for deterministic generated-file resolution
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+          pub-cache: false
 
       - name: Merge upstream main and enforce Android-only workflows
         id: merge
@@ -61,6 +74,11 @@ jobs:
             '.github/workflows/upstream-android.yml'
             '.github/workflows/sync-upstream.yml'
           )
+          GENERATED_TRANSLATIONS=(
+            'lib/i18n/strings.g.dart'
+            'lib/i18n/strings_en.g.dart'
+          )
+          REGENERATE_TRANSLATIONS=false
 
           set +e
           git merge --no-commit --no-ff upstream/main
@@ -72,6 +90,11 @@ jobs:
             for path in "${CONFLICTS[@]}"; do
               case "$path" in
                 .github/workflows/*.yml|.github/workflows/*.yaml)
+                  ;;
+                lib/i18n/strings.g.dart|lib/i18n/strings_en.g.dart)
+                  git checkout --ours -- "$path"
+                  git add -- "$path"
+                  REGENERATE_TRANSLATIONS=true
                   ;;
                 *)
                   echo "Upstream source conflict requires review: $path" >&2
@@ -101,6 +124,13 @@ jobs:
               git rm -f --ignore-unmatch -- "$path"
             fi
           done < <(find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) -print | sort)
+
+          if [ "$REGENERATE_TRANSLATIONS" = true ]; then
+            flutter pub get --enforce-lockfile --no-example
+            rm -f "${GENERATED_TRANSLATIONS[@]}"
+            scripts/codegen.sh
+            git add -- "${GENERATED_TRANSLATIONS[@]}"
+          fi
 
           if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
             echo 'Unresolved merge conflicts remain; refusing to push.' >&2
