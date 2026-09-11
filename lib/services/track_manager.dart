@@ -127,20 +127,23 @@ class TrackManager {
   /// MPV assigns subtitle track IDs in completion order, so parallel sub-adds
   /// make the track list nondeterministic. Keep this ordered for the fallback
   /// paths that cannot attach sidecars through loadfile.
-  Future<void> addExternalSubtitles(List<SubtitleTrack> externalSubtitles, {Future<void>? waitUntilReady}) async {
-    if (externalSubtitles.isEmpty) return;
+  ///
+  /// [waitUntilReady] is the open's file-loaded signal; it resolves false when
+  /// the open failed or was aborted first. Returns whether the adds ran —
+  /// false when the open never became ready or the manager went inactive, so
+  /// the caller knows there is nothing to resume or select on.
+  Future<bool> addExternalSubtitles(List<SubtitleTrack> externalSubtitles, {Future<bool>? waitUntilReady}) async {
+    if (externalSubtitles.isEmpty) return true;
 
     _externalSubtitleAddsInFlight = true;
     try {
       if (waitUntilReady != null) {
-        try {
-          await waitUntilReady;
-        } catch (e) {
-          appLogger.w('Continuing external subtitle load after readiness wait failed', error: e);
+        if (!await waitUntilReady) {
+          appLogger.d('Skipping external subtitle load: the open never became ready');
+          return false;
         }
-        if (!isActive()) return;
+        if (!isActive()) return false;
       }
-
       appLogger.d('Adding ${externalSubtitles.length} external subtitle(s) to player');
 
       for (final subtitleTrack in externalSubtitles.where((s) => s.uri != null)) {
@@ -156,6 +159,7 @@ class TrackManager {
           appLogger.w('Failed to add external subtitle: ${subtitleTrack.title ?? subtitleTrack.uri}', error: e);
         }
       }
+      return true;
     } finally {
       _externalSubtitleAddsInFlight = false;
     }
@@ -589,12 +593,20 @@ class TrackManager {
     // which is automatically read during episode navigation. No additional state needed.
   }
 
+  /// Whether a user track pick may be written to the server at all.
+  ///
+  /// Shared with the source-switch reload path so both answers to the same
+  /// user-facing promise come from one read.
+  static Future<bool> shouldPersistTrackSelections() async {
+    final settings = await SettingsService.getInstance();
+    return settings.read(SettingsService.rememberTrackSelections);
+  }
+
   // ── Private helpers ────────────────────────────────────────────────
 
   /// Common guard checks for track change handlers.
   Future<int?> _guardTrackChange(MediaSourceInfo? info) async {
-    final settings = await SettingsService.getInstance();
-    if (!settings.read(SettingsService.rememberTrackSelections)) return null;
+    if (!await shouldPersistTrackSelections()) return null;
 
     if (persistTrackPreference == null) return null;
 
@@ -606,6 +618,7 @@ class TrackManager {
     final partId = info.partId;
     if (partId == null) {
       appLogger.w('No part ID available, cannot save stream selection');
+      _reportSelectionNotRemembered();
     }
     return partId;
   }
@@ -618,6 +631,7 @@ class TrackManager {
   Future<void> _saveTrackPreferences({required int partId, required String trackType, int? streamID}) async {
     if (streamID == null) {
       appLogger.w('Not saving $trackType stream selection: no server stream matched the selected track');
+      _reportSelectionNotRemembered();
       return;
     }
     try {
@@ -631,6 +645,17 @@ class TrackManager {
     } catch (e) {
       appLogger.e('Failed to save $trackType stream selection', error: e);
     }
+  }
+
+  /// The pick took effect in the engine but cannot be recorded against the
+  /// server — either the source carries no part id to write against, or no
+  /// server stream matched the chosen track — and there is no local store to
+  /// fall back to. Tell the user the choice is session-only rather than
+  /// dropping it silently. The message names that outcome, not the cause,
+  /// because both call sites produce the same one.
+  void _reportSelectionNotRemembered() {
+    if (!_managerIsActive) return;
+    showMessage?.call(t.messages.trackSelectionNotRemembered);
   }
 
   /// Clean up subscriptions.

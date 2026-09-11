@@ -2428,6 +2428,9 @@ class Translations$messages$en {
 	/// en: 'Could not apply the selected streams'
 	String get streamSelectionFailed => 'Could not apply the selected streams';
 
+	/// en: 'This track choice applies to the current playback only.'
+	String get trackSelectionNotRemembered => 'This track choice applies to the current playback only.';
+
 	/// en: 'No server is available for the active profile'
 	String get serverUnavailableForProfile => 'No server is available for the active profile';
 }
@@ -7831,6 +7834,7 @@ extension on Translations {
 			'messages.playbackDataNotPrepared' => 'Playback was started before its data was ready',
 			'messages.streamSelectionUnavailable' => 'Stream selection is not available for this source',
 			'messages.streamSelectionFailed' => 'Could not apply the selected streams',
+			'messages.trackSelectionNotRemembered' => 'This track choice applies to the current playback only.',
 			'messages.serverUnavailableForProfile' => 'No server is available for the active profile',
 			'subtitlingStyling.text' => 'Text',
 			'subtitlingStyling.border' => 'Border',
@@ -8074,9 +8078,9 @@ extension on Translations {
 			'libraries.filters' => 'Filters',
 			'libraries.confirmActionMessage' => 'Are you sure you want to perform this action?',
 			'libraries.showLibrary' => 'Show library',
-			'libraries.hideLibrary' => 'Hide library',
 			_ => null,
 		} ?? switch (path) {
+			'libraries.hideLibrary' => 'Hide library',
 			'libraries.libraryOptions' => 'Library options',
 			'libraries.content' => 'library content',
 			'libraries.selectLibrary' => 'Select library',
@@ -8588,9 +8592,9 @@ extension on Translations {
 			'downloads.allEpisodesAlreadyDownloaded' => 'All episodes already downloaded',
 			'downloads.resumeDownload' => 'Resume download',
 			'downloads.cancelledDownload' => 'Canceled download',
-			'downloads.syncingFile' => ({required Object file, required Object status}) => '${file} (syncing ${status})',
 			_ => null,
 		} ?? switch (path) {
+			'downloads.syncingFile' => ({required Object file, required Object status}) => '${file} (syncing ${status})',
 			'downloads.downloadedFileClickToComplete' => ({required Object file}) => 'Downloaded ${file} - Click to complete',
 			'downloads.partialDownloadClickToComplete' => 'Partially downloaded - Click to complete',
 			'downloads.deleting' => 'Deleting...',

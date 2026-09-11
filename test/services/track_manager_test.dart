@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plezy/i18n/strings.g.dart';
 import 'package:plezy/media/media_backend.dart';
 import 'package:plezy/media/media_item.dart';
 import 'package:plezy/media/media_kind.dart';
@@ -351,7 +352,7 @@ void main() {
       final player = _FakePlayer();
       final mgr = _make(player: player);
       addTearDown(mgr.dispose);
-      final ready = Completer<void>();
+      final ready = Completer<bool>();
 
       final addFuture = mgr.addExternalSubtitles([
         SubtitleTrack.uri('https://example/ready.srt', title: 'EN'),
@@ -360,11 +361,24 @@ void main() {
 
       expect(player.addSubtitleCalls, isEmpty);
 
-      ready.complete();
-      await addFuture;
+      ready.complete(true);
+      expect(await addFuture, isTrue);
 
       expect(player.addSubtitleCalls, hasLength(1));
       expect(player.addSubtitleCalls.single.uri, 'https://example/ready.srt');
+    });
+
+    test('an open that never becomes ready adds nothing and reports it', () async {
+      final player = _FakePlayer();
+      final mgr = _make(player: player);
+      addTearDown(mgr.dispose);
+
+      final added = await mgr.addExternalSubtitles([
+        SubtitleTrack.uri('https://example/never.srt', title: 'EN'),
+      ], waitUntilReady: Future.value(false));
+
+      expect(added, isFalse);
+      expect(player.addSubtitleCalls, isEmpty);
     });
   });
 
@@ -1075,6 +1089,47 @@ void main() {
       });
     });
 
+    test(
+      'invalidation after a failed open cancels the five-second and deadline fallbacks and applies nothing',
+      () async {
+        await SettingsService.getInstance();
+
+        fakeAsync((async) {
+          final player = _FakePlayer(
+            tracks: const Tracks(
+              audio: [AudioTrack(id: '1', language: 'eng')],
+            ),
+          );
+          final mgr = _make(player: player, mediaInfo: _mediaInfoWithSubtitles(selected: true));
+
+          mgr.applyTrackSelectionWhenReady();
+          expect(player.tracksController.hasListener, isTrue);
+          expect(async.nonPeriodicTimerCount, 1);
+
+          // The open failed: the screen's abort path invalidates before any
+          // fallback fires, and nothing may reach the idle core afterwards.
+          mgr.invalidatePendingSelection();
+
+          expect(player.tracksController.hasListener, isFalse);
+          expect(async.nonPeriodicTimerCount, 0);
+
+          async.elapse(const Duration(seconds: 30));
+          player.emitTracks(
+            const Tracks(
+              audio: [AudioTrack(id: '1', language: 'eng')],
+              subtitle: [SubtitleTrack(id: '10', language: 'eng')],
+            ),
+          );
+          async.flushMicrotasks();
+
+          expect(player.selectedAudio, isEmpty);
+          expect(player.selectedSubtitle, isEmpty);
+          expect(player.rates, isEmpty);
+          mgr.dispose();
+        });
+      },
+    );
+
     test('five-second fallback keeps listening and applies a late advertised subtitle', () async {
       await SettingsService.getInstance();
 
@@ -1646,7 +1701,7 @@ void main() {
       final player = _FakePlayer();
       final mgr = _make(player: player);
       addTearDown(mgr.dispose);
-      final ready = Completer<void>();
+      final ready = Completer<bool>();
 
       mgr.waitingForExternalSubsTrackSelection = true;
       final addFuture = mgr.addExternalSubtitles([
@@ -1659,7 +1714,7 @@ void main() {
       expect(mgr.waitingForExternalSubsTrackSelection, isTrue);
       expect(player.addSubtitleCalls, isEmpty);
 
-      ready.complete();
+      ready.complete(true);
       await addFuture;
 
       mgr.onPlaybackRestart();
@@ -1774,31 +1829,87 @@ void main() {
       expect(captured, 32);
     });
 
-    test('does not persist anything when the track maps to no server stream', () async {
+    test('tells the user a pick that maps to no server stream is session-only', () async {
       // #1713: an unmappable native track used to reach the persister with a
       // null streamID, which short-circuited before the request while the
       // manager still reported a successful save. Nothing is stored locally,
-      // so a silent no-op loses the choice on the next start.
+      // so the choice is lost on the next start — say so instead of dropping
+      // it silently.
       await SettingsService.getInstance();
       const unknown = SubtitleTrack(id: '2_9', language: 'jpn', codec: 'ass');
       final player = _FakePlayer(tracks: const Tracks(subtitle: [...playerSubs, unknown]));
       var persistCalls = 0;
+      final messages = <String>[];
       final mgr = _make(
         player: player,
         mediaInfo: info(),
         persister: ({required int partId, required String trackType, required int streamID}) async {
           persistCalls++;
         },
+        showMessage: (message, {duration}) => messages.add(message),
       );
       addTearDown(mgr.dispose);
 
       await mgr.onSubtitleTrackChanged(unknown);
       expect(persistCalls, 0);
+      expect(messages, [t.messages.trackSelectionNotRemembered]);
 
-      // Same manager and fixture: a mappable track still persists, so the
-      // assertion above is about the unmatched track, not a disabled path.
+      // Same manager and fixture: a mappable track still persists silently, so
+      // the assertions above are about the unmatched track, not a dead path.
       await mgr.onSubtitleTrackChanged(playerSubs[0]);
       expect(persistCalls, 1);
+      expect(messages, hasLength(1));
+    });
+
+    test('tells the user a pick is session-only when the source has no part id', () async {
+      await SettingsService.getInstance();
+      final player = _FakePlayer(tracks: const Tracks(subtitle: playerSubs));
+      var persistCalls = 0;
+      final messages = <String>[];
+      final mgr = _make(
+        player: player,
+        mediaInfo: MediaSourceInfo(
+          videoUrl: 'https://example.com/video.mkv',
+          audioTracks: [MediaAudioTrack(id: 1, languageCode: 'fre', selected: true)],
+          subtitleTracks: info().subtitleTracks,
+          chapters: const [],
+        ),
+        persister: ({required int partId, required String trackType, required int streamID}) async {
+          persistCalls++;
+        },
+        showMessage: (message, {duration}) => messages.add(message),
+      );
+      addTearDown(mgr.dispose);
+
+      await mgr.onSubtitleTrackChanged(playerSubs[0]);
+
+      expect(persistCalls, 0);
+      expect(messages, [t.messages.trackSelectionNotRemembered]);
+    });
+
+    test('writes nothing and says nothing when remembering track selections is off', () async {
+      resetSharedPreferencesForTest(initialAsync: {'remember_track_selections': false});
+      await SettingsService.getInstance();
+      final player = _FakePlayer(tracks: const Tracks(subtitle: playerSubs));
+      var persistCalls = 0;
+      final messages = <String>[];
+      final mgr = _make(
+        player: player,
+        mediaInfo: info(),
+        persister: ({required int partId, required String trackType, required int streamID}) async {
+          persistCalls++;
+        },
+        showMessage: (message, {duration}) => messages.add(message),
+      );
+      addTearDown(mgr.dispose);
+
+      // A mappable pick and an unmappable one: the setting suppresses both the
+      // write and the notice, so an opt-out stays quiet.
+      await mgr.onSubtitleTrackChanged(playerSubs[0]);
+      await mgr.onSubtitleTrackChanged(const SubtitleTrack(id: '2_9', language: 'jpn', codec: 'ass'));
+
+      expect(persistCalls, 0);
+      expect(messages, isEmpty);
     });
   });
 
