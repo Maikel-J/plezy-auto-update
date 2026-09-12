@@ -198,6 +198,13 @@ class MpvPlayerCore private constructor(
    * [FrameRateManager.clearVideoFrameRate]). */
   @Volatile private var hdrDisplayActive: Boolean = false
 
+  /** Read at [initialize], before the app's own display-mode switch:
+   * `Display.getHdrCapabilities` answers for the active mode, and a
+   * downgraded mode can report none (#2302). */
+  @Volatile private var displayHdrSupported: Boolean = false
+
+  @Volatile private var displayDvSupported: Boolean = false
+
   @Volatile private var videoDisplayWidth: Int = 0
 
   @Volatile private var videoDisplayHeight: Int = 0
@@ -563,6 +570,8 @@ class MpvPlayerCore private constructor(
       currentDvConversionMode = "auto"
       hdrSurfaceDecided = false
       hdrDisplayActive = false
+      displayHdrSupported = false
+      displayDvSupported = false
       frameRateVote.onMediaFrameRate(0f)
       frameRateVote.onPlaybackSpeed(1f)
       publishedDisplayFpsOverride = null
@@ -583,6 +592,10 @@ class MpvPlayerCore private constructor(
         isPaused = { desiredPaused }
       )
       if (!audioOnly) {
+        displayHdrSupported = DoviBridge.displaySupportsHdr(context)
+        displayDvSupported = DoviBridge.displaySupportsDolbyVision(context)
+        emitLog("info", "display", "hdr=$displayHdrSupported dv=$displayDvSupported")
+
         frameRateManager = FrameRateManager(
           activity = activity,
           handler = handler,
@@ -1035,18 +1048,19 @@ class MpvPlayerCore private constructor(
    */
   private fun setGpuVoRequirement(reason: String, active: Boolean) {
     if (!usesMediaCodecVo || disposing) return
+    var switching = false
     val transition = synchronized(gpuVoReasons) {
       val changed = if (active) gpuVoReasons.add(reason) else gpuVoReasons.remove(reason)
       if (!changed) return
       val desired = GpuVoPolicy.targetFor(gpuVoReasons)
-      if (desired == activeGpuVoTarget) return
       val line = "${activeGpuVoTarget ?: "mediacodec"} -> ${desired ?: "mediacodec"} " +
         "(reasons=[${gpuVoReasons.joinToString(",")}])"
-      activeGpuVoTarget = desired
+      switching = desired != activeGpuVoTarget
+      if (switching) activeGpuVoTarget = desired
       line
     }
-    Log.i(TAG, "Video output: $transition")
-    applyGpuVoTarget()
+    emitLog("info", "video-route", transition)
+    if (switching) applyGpuVoTarget()
   }
 
   /**
@@ -1326,16 +1340,14 @@ class MpvPlayerCore private constructor(
 
   /**
    * Observed from video-params so the reason follows per-file transfer
-   * changes, and the display is re-queried per change so an HDMI mode switch
-   * mid-session is honoured on the next file. Why it matters:
-   * [GpuVoPolicy.needsHdrToneMapping].
+   * changes. Why it matters: [GpuVoPolicy.needsHdrToneMapping].
    */
   private fun collectHdrToneMapState(p: MpvPlayer) {
     scope.launch(start = CoroutineStart.UNDISPATCHED) {
       p.propertyFlow.filterIsInstance<PropertyChange.Str>().filter { it.name == "video-params/gamma" }.collect { change ->
         val needsToneMap = GpuVoPolicy.needsHdrToneMapping(
           gamma = change.value,
-          displaySupportsHdr = DoviBridge.displaySupportsHdr(context)
+          displaySupportsHdr = displayHdrSupported
         )
         setGpuVoRequirement(GpuVoPolicy.REASON_HDR_SDR, needsToneMap)
       }
@@ -1932,7 +1944,7 @@ class MpvPlayerCore private constructor(
    */
   private fun applyDvConversionMode(value: String, onComplete: ((Result<Unit>) -> Unit)?) {
     val mode = value.trim().lowercase()
-    val displayDv = DoviBridge.displaySupportsDolbyVision(context)
+    val displayDv = displayDvSupported
     val nativeDecoder = DoviBridge.hasNativeDolbyVisionDecoder
     val options = GpuVoPolicy.dvDecoderOptions(mode, displayDv, nativeDecoder)
     if (options == null) {
@@ -1976,7 +1988,7 @@ class MpvPlayerCore private constructor(
     }
     hdrSurfaceDecided = true
     val wants = wantsHdrSurface(transfer)
-    val displayHdr = wants && DoviBridge.displaySupportsHdr(context)
+    val displayHdr = wants && displayHdrSupported
     // Independent of the GL surface outcome: on the MediaCodec plane the
     // decoder's dataspace carries HDR to the display without a PQ GL surface.
     hdrDisplayActive = displayHdr
