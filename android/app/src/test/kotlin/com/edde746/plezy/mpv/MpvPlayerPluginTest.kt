@@ -1748,16 +1748,32 @@ class MpvPlayerPluginTest {
   }
 
   @Test
-  fun decoderOptionsMergeKeepsUserEntriesFirst() {
-    // The property interface cannot append to a list option, so the write
-    // replaces it wholesale: a user's own mpv.conf `vd-lavc-o` entries must
-    // survive, with the app's keys last (FFmpeg keeps the last duplicate).
-    assertEquals(
-      "threads=4,dolby_vision=1",
-      MpvPlayerCore.mergeDecoderOptions("threads=4", "dolby_vision=1")
+  fun decoderOptionsMergePreservesBackendChoiceAcrossDvChanges() {
+    // FFmpeg applies duplicate AVOptions in order; inspect the effective
+    // settings rather than requiring a particular serialization of the list.
+    fun effective(options: String): Map<String, String> = options.split(',').associate {
+      it.substringBefore('=') to it.substringAfter('=')
+    }
+
+    val converted = MpvPlayerCore.mergeDecoderOptions(
+      "ndk_codec=1,threads=4,dolby_vision=0,dv_p7_mode=strip",
+      "dolby_vision=1,dv_p7_mode=convert"
     )
-    assertEquals("dolby_vision=1", MpvPlayerCore.mergeDecoderOptions(null, "dolby_vision=1"))
-    assertEquals("dolby_vision=1", MpvPlayerCore.mergeDecoderOptions("  ", "dolby_vision=1"))
+    assertEquals(
+      mapOf("ndk_codec" to "1", "threads" to "4", "dolby_vision" to "1", "dv_p7_mode" to "convert"),
+      effective(converted)
+    )
+
+    // A user can explicitly choose Java and tune unrelated AVOptions. A later
+    // DV change must replace only the DV choices, not reinstate the NDK default.
+    val nativeDv = MpvPlayerCore.mergeDecoderOptions(
+      "$converted,ndk_codec=0,threads=2",
+      "dolby_vision=1,dv_p7_mode=native"
+    )
+    assertEquals(
+      mapOf("ndk_codec" to "0", "threads" to "2", "dolby_vision" to "1", "dv_p7_mode" to "native"),
+      effective(nativeDv)
+    )
   }
 
   private fun awaitQueueEntry(

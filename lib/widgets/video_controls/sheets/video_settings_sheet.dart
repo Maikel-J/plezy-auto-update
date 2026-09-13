@@ -1053,11 +1053,7 @@ class _VideoSettingsSheetState extends State<VideoSettingsSheet> {
   Widget _buildSleepView() {
     final sleepTimer = SleepTimerService();
 
-    return SleepTimerContent(
-      player: widget.player,
-      sleepTimer: sleepTimer,
-      onCancel: () => OverlaySheetController.of(context).close(),
-    );
+    return SleepTimerContent(sleepTimer: sleepTimer, onCancel: () => OverlaySheetController.of(context).close());
   }
 
   Widget _buildVersionQualityView() {

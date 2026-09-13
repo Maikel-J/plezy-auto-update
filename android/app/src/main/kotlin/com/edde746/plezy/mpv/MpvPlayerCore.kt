@@ -729,6 +729,15 @@ class MpvPlayerCore private constructor(
                   setOption("vo", initialVideoOutput(hardwareDecoding))
                   setOption("gpu-context", "android")
                   setOption("opengl-es", "yes")
+                  // FFmpeg's auto backend chooses Java when a JVM is registered.
+                  // Use synchronous NDK MediaCodec so per-frame decode/release
+                  // calls do not wait on ART JIT code-cache collection (#2255).
+                  // This belongs to every video core, not the DV or vo=mediacodec
+                  // policy: GPU/copy hardware paths use the same decoder. Software
+                  // decoders ignore this unknown AVOption without failing open.
+                  // Set before init; DV writes merge it, while a later custom
+                  // vd-lavc-o keeps the existing whole-list override precedence.
+                  setOption("vd-lavc-o", "ndk_codec=1")
                   // Keep AV1 film grain inside the decoder (dav1d). `auto` hands it
                   // to any vo claiming VO_CAP_FILM_GRAIN, and gpu-next claims it on
                   // GLES where libplacebo's raster grain fallback fetches luma by
