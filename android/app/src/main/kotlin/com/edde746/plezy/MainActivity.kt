@@ -115,8 +115,8 @@ class MainActivity : FlutterActivity() {
   private var flutterTextureView: FlutterTextureView? = null
   private var flutterSurfaceReconnectPending = false
   private var activityStarted = false
-  private val externalPlayerChannel = ExternalPlayerChannel(this)
   private val appUpdateChannel = AppUpdateChannel(this)
+  private val externalPlayerChannel = ExternalPlayerChannel(this)
   private val exitDiagnosticsRequested = AtomicBoolean(false)
 
   private inline fun logTextInputDiag(message: () -> String) {
