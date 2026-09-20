@@ -33,9 +33,25 @@ extension _VideoPlayerPlaybackServiceMethods on VideoPlayerScreenState {
   }
 
   Future<void> _markFirstFrameReady(Player currentPlayer, SettingsService settingsService) async {
-    if (!mounted || _shuttingDown || player != currentPlayer || _firstFrame.rendered || _hasFatalPlaybackError) return;
+    bool stale() =>
+        !mounted || _shuttingDown || player != currentPlayer || _firstFrame.rendered || _hasFatalPlaybackError;
+    if (stale()) return;
+
+    // The open is negotiating the display from this frame: keep it behind
+    // the loading UI until the mode switch (and decoder refresh) settled,
+    // as the spinner did while the metadata pre-load switch ran. Concurrent
+    // callers (restart event, position fallback) re-check after the wait so
+    // only one latches the frame. A negotiation abandoned by a newer open
+    // resolves false: that open holds and reveals its own first frame, and
+    // the same player instance makes the guards above blind to the swap.
+    final negotiation = _frameRate.displayNegotiation;
+    if (negotiation != null) {
+      if (!await negotiation || stale()) return;
+    }
 
     _firstFrame.markReady();
+    // This request is proven: a later in-place switch that fails restores it.
+    _workingOpenRequest = _currentOpenRequest;
     _http503Watchdog.disarm();
     unawaited(Sentry.addBreadcrumb(Breadcrumb(message: 'First frame ready', category: 'player')));
     final progressTracker = _progressTracker;

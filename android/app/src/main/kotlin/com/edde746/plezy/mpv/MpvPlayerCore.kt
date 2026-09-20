@@ -5,9 +5,11 @@ import android.app.ActivityManager
 import android.content.Context
 import android.hardware.display.DisplayManager
 import android.media.AudioAttributes
+import android.media.MediaCodecList
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import android.view.SurfaceHolder
@@ -21,6 +23,7 @@ import com.edde746.plezy.shared.AudioFocusManager
 import com.edde746.plezy.shared.FrameRateManager
 import com.edde746.plezy.shared.GlCapabilities
 import com.edde746.plezy.shared.MediaCodecQuery
+import com.edde746.plezy.shared.PlayerDebugLog
 import com.edde746.plezy.shared.PlayerDelegate
 import com.edde746.plezy.shared.PlayerSurfaceHost
 import com.edde746.plezy.shared.SurfacePlayerCore
@@ -93,7 +96,22 @@ class MpvPlayerCore private constructor(
 
   companion object {
     private const val TAG = "MpvPlayerCore"
+
+    /**
+     * How long a surface destruction may hold the Android main thread for mpv
+     * to let go of the surface. A budget for the main looper (past ~5 s of
+     * pending input Android declares an ANR), never a verdict on the core; see
+     * [handoffDestroyedSurface].
+     */
     private const val SURFACE_HANDOFF_TIMEOUT_MS = 2_000L
+
+    /**
+     * How long an admitted write may go unanswered before the core is declared
+     * gone. A bound on a core that never returns, not on latency - see
+     * [writeOperations] for why nothing shorter can be told apart from a
+     * legitimate rebuild.
+     */
+    private const val CORE_UNRESPONSIVE_MS = 30_000L
 
     /**
      * How long the overlay's whole sweep may take. The same 6 s the read queue
@@ -102,8 +120,55 @@ class MpvPlayerCore private constructor(
      */
     private const val STATS_SWEEP_TIMEOUT_MS = 6_000L
 
+    /**
+     * How long after a restart or unpause the presented cadence is read: at
+     * least ten shown frames at the slowest cadence (24 fps → 420 ms), plus a
+     * margin, so mpv's average spans a full field pattern.
+     */
+    private const val FIELD_OUTPUT_SETTLE_MS = 600L
+
     /** `fw-bytes` inside mpv's JSON-serialised `demuxer-cache-state`. */
     private val FORWARD_CACHE_BYTES = Regex("\"fw-bytes\"\\s*:\\s*(\\d+)")
+
+    /** MIME types devices register Dolby Vision decoders under. FFmpeg only
+     * asks for the first; the others are enumerated so the routing log shows
+     * the decoder a device "has" but FFmpeg will never open. */
+    private val DV_MIME_TYPES = setOf(GpuVoPolicy.DV_MIME, "video/hevcdv", "video/dv_hevc")
+
+    /**
+     * Every decoder registered under [DV_MIME_TYPES], in MediaCodecList
+     * order, for [GpuVoPolicy.nativeP5Decoder]. One walk per process: the
+     * codec list is static. A type whose capabilities cannot be queried is
+     * dropped, as FFmpeg drops it.
+     */
+    private val dvDecoderCandidates: List<GpuVoPolicy.DvDecoderCandidate> by lazy {
+      val candidates = try {
+        MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filterNot { it.isEncoder }.flatMap { info ->
+          info.supportedTypes.filter { it.lowercase(Locale.ROOT) in DV_MIME_TYPES }.mapNotNull { type ->
+            val profiles = try {
+              info.getCapabilitiesForType(type).profileLevels.map { it.profile }
+            } catch (e: IllegalArgumentException) {
+              Log.w(TAG, "Failed to query ${info.name} capabilities for $type", e)
+              return@mapNotNull null
+            }
+            // isSoftwareOnly exists from API 29; FFmpeg consults it only there too.
+            val softwareOnly = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) info.isSoftwareOnly else false
+            GpuVoPolicy.DvDecoderCandidate(name = info.name, mime = type, profiles = profiles, isSoftwareOnly = softwareOnly)
+          }
+        }
+      } catch (e: Exception) {
+        Log.w(TAG, "Failed to enumerate Dolby Vision decoders", e)
+        emptyList()
+      }
+      Log.i(
+        TAG,
+        "Dolby Vision decoders: " + candidates.joinToString(prefix = "[", postfix = "]") {
+          "${it.name} ${it.mime} profiles=${it.profiles.joinToString(",") { p -> "0x${p.toString(16)}" }}" +
+            (if (it.isSoftwareOnly) " software-only" else "")
+        }
+      )
+      candidates
+    }
 
     /**
      * The initial `vo` chain, decided by whether this session will hardware-
@@ -192,6 +257,11 @@ class MpvPlayerCore private constructor(
    * routing policy. */
   @Volatile private var currentDvConversionMode: String = "auto"
 
+  /** `dolby-vision-profile` of the video track the current file selected
+   * (null when the bitstream carries no DOVI record); set per file by
+   * [applyDvReshapePolicy], read when `hwdec-current` reports the outcome. */
+  @Volatile private var pendingDvProfile: Long? = null
+
   /** Whether this core already decided its GL surface colorspace; set by the
    * first `content-color-transfer` announcement ([applyContentColorTransfer]). */
   @Volatile private var hdrSurfaceDecided: Boolean = false
@@ -267,7 +337,21 @@ class MpvPlayerCore private constructor(
   @Volatile private var osdSurfaceGeneration = 0L
   private var attachedVideoGeneration = -1L
   private var attachedOsdGeneration = -1L
-  private val writeOperations = MpvOperationQueue(onTimeout = ::failNativeOperations)
+
+  /**
+   * Every property write, command and compound transaction (renderer
+   * transition, video output refresh, surface retirement, render tier). An
+   * expiry condemns the session, so the bound is [CORE_UNRESPONSIVE_MS], not
+   * a latency budget: a synchronous write is answered by mpv's core thread,
+   * which cannot signal progress while it runs the `vo`/`wid` or decoder
+   * re-init the write asked for - property changes come from the very
+   * playloop it is holding, and the only other events are log lines at the
+   * requested level. A 4K software-decode session holds it for seconds during
+   * exactly those rebuilds (#2290), and a core that is merely slow emits
+   * nothing a wedged one would not. The one thing that separates them is a
+   * return that never comes, so the bound sits far past any rebuild.
+   */
+  private val writeOperations = MpvOperationQueue(timeoutMs = CORE_UNRESPONSIVE_MS, onTimeout = ::failNativeOperations)
 
   // A read that overruns means the core is busy, not gone: mpv_get_property waits
   // on the core thread, and software-decoding 4K can hold one for seconds. Expire
@@ -323,9 +407,17 @@ class MpvPlayerCore private constructor(
   private fun largeMemoryClassMB(): Int = (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)?.largeMemoryClass ?: 0
 
   // The demuxer bounds this session is currently holding. Set at init from
-  // the steady tier and only ever ratcheted *down* by [onTrimMemory]. Both
-  // run on the main thread, which is why the ratchet needs no lock.
+  // the steady tier, narrowed by [onTrimMemory] and walked back toward
+  // [steadyDemuxerBudget] by [scheduleDemuxerRestore]. All of it runs on the
+  // main thread, which is why none of these needs a lock.
   @Volatile private var appliedDemuxerBudget: DemuxerBudget? = null
+
+  // What the restore poll walks back to: the tier at init, replaced at the
+  // session's first narrowing by the bounds mpv was actually holding, so a
+  // user mpv.conf override is what comes back rather than the tier.
+  @Volatile private var steadyDemuxerBudget: DemuxerBudget? = null
+  private var demuxerRestoreJob: Job? = null
+  private var lastDemuxerNarrowAtMs = 0L
 
   /**
    * The demuxer cache bounds as an mpv name/value pair. Init applies them as
@@ -349,11 +441,12 @@ class MpvPlayerCore private constructor(
    * the Dart-side stream ring is most of what the app is holding.
    *
    * Read-ahead is bounded in seconds of the stream, so the budget is decided
-   * after measuring it ([measureStreamByteRate]). That read runs on
-   * [readOperations], where overrunning on a pressured core expires the read
-   * alone instead of condemning the session.
+   * after measuring it ([probeDemuxer]). That read runs on [readOperations],
+   * where overrunning on a pressured core expires the read alone instead of
+   * condemning the session.
    *
-   * Deliberately one-way inside a session ([DemuxerBudget.narrowedTo]).
+   * Only ever narrows ([DemuxerBudget.narrowedTo]); the way back is
+   * [scheduleDemuxerRestore], which this arms.
    */
   fun onTrimMemory(level: Int) {
     if (!isInitialized || disposing) return
@@ -364,39 +457,103 @@ class MpvPlayerCore private constructor(
     // front of the property reads playback is making.
     val floor = DemuxerBudget.forTrimLevel(heapClassMB, level) ?: return
     if (appliedDemuxerBudget?.narrowedTo(floor) == appliedDemuxerBudget) return
+    // Only the session's first narrowing snapshots what mpv holds: a trim
+    // landing mid-ramp would capture a half-restored budget as the target.
+    val untrimmed = steadyDemuxerBudget == appliedDemuxerBudget
     scope.launch(start = CoroutineStart.UNDISPATCHED) {
-      val streamByteRate = measureStreamByteRate()
-      val wanted = DemuxerBudget.forTrimLevel(heapClassMB, level, streamByteRate) ?: return@launch
+      val probe = probeDemuxer(snapshotHeld = untrimmed)
+      val wanted = DemuxerBudget.forTrimLevel(heapClassMB, level, probe.streamByteRate) ?: return@launch
       val current = appliedDemuxerBudget ?: return@launch
       val next = current.narrowedTo(wanted)
       if (next == current) return@launch
+      // Re-checked after the read: a concurrent trim may have narrowed first,
+      // and its write could already be what the probe read back.
+      if (probe.held != null && steadyDemuxerBudget == current) steadyDemuxerBudget = probe.held
       appliedDemuxerBudget = next
-      emitLog("info", "memory", "trim level $level: ${describeBudget(next, streamByteRate)}")
+      lastDemuxerNarrowAtMs = SystemClock.elapsedRealtime()
+      emitLog("info", "memory", "trim level $level: ${describeBudget(next, probe.streamByteRate)}")
       launchMpvWrite("demuxer budget") {
         demuxerBudgetWrites(next) { name, value -> writeProperty(name, value) }
       }
+      scheduleDemuxerRestore()
     }
   }
 
+  /** What [onTrimMemory] reads off the core before deciding. */
+  private class DemuxerProbe(val streamByteRate: Long, val held: DemuxerBudget?)
+
   /**
-   * The stream's byte rate for [DemuxerBudget.streamByteRate], or 0 when
-   * there is nothing loaded to measure. A read that expires or is refused
-   * leaves the plain byte floor in charge.
+   * The stream's byte rate for [DemuxerBudget.streamByteRate] (0 when there
+   * is nothing loaded to measure) and, when [snapshotHeld], the bounds mpv
+   * holds right now - mpv prints byte-size options as plain integers. One
+   * read-queue trip for both. A read that expires or is refused leaves the
+   * plain byte floor in charge and the tier as the restore target.
    */
-  private suspend fun measureStreamByteRate(): Long = try {
+  private suspend fun probeDemuxer(snapshotHeld: Boolean): DemuxerProbe = try {
     readOperations.run("demuxer cache rate") {
-      DemuxerBudget.streamByteRate(
+      val streamByteRate = DemuxerBudget.streamByteRate(
         cachedBytes = forwardCacheBytes(readProperty("demuxer-cache-state")),
         cachedSeconds = readProperty("demuxer-cache-duration")?.toDoubleOrNull() ?: 0.0,
         fileBytes = readProperty("file-size")?.toLongOrNull() ?: 0L,
         fileSeconds = readProperty("duration")?.toDoubleOrNull() ?: 0.0
       )
+      val held = if (snapshotHeld) {
+        val ahead = readProperty("demuxer-max-bytes")?.toLongOrNull()
+        val back = readProperty("demuxer-max-back-bytes")?.toLongOrNull()
+        if (ahead != null && back != null) DemuxerBudget(ahead, back) else null
+      } else {
+        null
+      }
+      DemuxerProbe(streamByteRate, held)
     }
   } catch (e: CancellationException) {
     throw e
   } catch (e: Exception) {
     Log.w(TAG, "Demuxer cache rate unreadable", e)
-    0L
+    DemuxerProbe(0L, null)
+  }
+
+  /**
+   * Walks [appliedDemuxerBudget] back toward [steadyDemuxerBudget] one rung
+   * per poll once memory has genuinely recovered. Android has no "pressure
+   * cleared" callback and repeats the `RUNNING_*` levels only on mem-factor
+   * transitions, so silence is not recovery: every step is gated on the
+   * low-memory killer's own threshold ([DemuxerBudget.canWiden]) and held
+   * off for [DemuxerBudget.RESTORE_QUIET_MS] after the latest narrowing.
+   * mpv raises the bounds within about a second of the write; only a
+   * shrinking total frees the packet pool, so widening never stalls the
+   * reader. Ends once fully restored; a later trim narrows and re-arms it.
+   */
+  private fun scheduleDemuxerRestore() {
+    if (demuxerRestoreJob?.isActive == true) return
+    demuxerRestoreJob = scope.launch {
+      while (true) {
+        delay(DemuxerBudget.RESTORE_POLL_MS)
+        if (!isInitialized || disposing) return@launch
+        if (SystemClock.elapsedRealtime() - lastDemuxerNarrowAtMs < DemuxerBudget.RESTORE_QUIET_MS) continue
+        // Re-read after every suspension: a trim may have landed meanwhile.
+        val current = appliedDemuxerBudget ?: return@launch
+        val steady = steadyDemuxerBudget ?: return@launch
+        val next = current.widenedToward(steady) ?: return@launch
+        val memory = memoryInfo() ?: continue
+        if (!current.canWiden(next, memory.availMem, memory.threshold, memory.lowMemory)) continue
+        appliedDemuxerBudget = next
+        val line = "memory recovered (${memory.availMem / (1024 * 1024)}MB free, " +
+          "threshold ${memory.threshold / (1024 * 1024)}MB): ${describeBounds(next)}"
+        // Both: logcat for a developer at the box, the uploadable log for a report.
+        Log.i(TAG, line)
+        emitLog("info", "memory", line)
+        launchMpvWrite("demuxer budget") {
+          demuxerBudgetWrites(next) { name, value -> writeProperty(name, value) }
+        }
+      }
+    }
+  }
+
+  /** A `getMemoryInfo` sample, or null where there is no activity service. */
+  private fun memoryInfo(): ActivityManager.MemoryInfo? {
+    val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return null
+    return ActivityManager.MemoryInfo().also { manager.getMemoryInfo(it) }
   }
 
   /**
@@ -406,13 +563,16 @@ class MpvPlayerCore private constructor(
    */
   private fun forwardCacheBytes(state: String?): Long = FORWARD_CACHE_BYTES.find(state ?: return 0L)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
 
+  /** The bounds mpv holds, as every `memory` log line reports them. */
+  private fun describeBounds(budget: DemuxerBudget): String = "demuxer budget -> ${budget.aheadBytes / (1024 * 1024)}MB ahead, " +
+    "${budget.backBytes / (1024 * 1024)}MB back"
+
   /**
    * A budget as a starving-session report needs it: the bounds mpv holds and,
    * when measurable, what they are worth in seconds of this stream.
    */
   private fun describeBudget(budget: DemuxerBudget, streamByteRate: Long): String {
-    val bounds = "demuxer budget -> ${budget.aheadBytes / (1024 * 1024)}MB ahead, " +
-      "${budget.backBytes / (1024 * 1024)}MB back"
+    val bounds = describeBounds(budget)
     if (streamByteRate <= 0L) return "$bounds (stream byte rate unknown)"
     return bounds + " (%.1fs at %.1f MB/s)".format(
       Locale.ROOT,
@@ -505,7 +665,7 @@ class MpvPlayerCore private constructor(
   private fun updateDisplayFpsOverride(reason: String, onComplete: () -> Unit = {}) {
     val fps = currentDisplayFpsOverride()
     if (fps == null) {
-      Log.d(TAG, "Skipping display-fps-override update ($reason): no display rate")
+      PlayerDebugLog.d(TAG) { "Skipping display-fps-override update ($reason): no display rate" }
       onComplete()
       return
     }
@@ -517,7 +677,7 @@ class MpvPlayerCore private constructor(
     submitMpvOperation(writeOperations, "display rate", { onComplete() }) {
       writeProperty("display-fps-override", fps)
       publishedDisplayFpsOverride = fps
-      Log.d(TAG, "Updated display-fps-override=$fps ($reason)")
+      PlayerDebugLog.d(TAG) { "Updated display-fps-override=$fps ($reason)" }
     }
   }
 
@@ -573,7 +733,7 @@ class MpvPlayerCore private constructor(
       return
     }
     if (isInitialized) {
-      Log.d(TAG, "Already initialized")
+      PlayerDebugLog.d(TAG) { "Already initialized" }
       onResult(true)
       return
     }
@@ -623,6 +783,7 @@ class MpvPlayerCore private constructor(
       videoZoomLog2 = 0f
       pendingVideoRectUpdate.set(null)
       currentDvConversionMode = "auto"
+      pendingDvProfile = null
       hdrSurfaceDecided = false
       hdrDisplayActive = false
       displayHdrSupported = false
@@ -649,12 +810,16 @@ class MpvPlayerCore private constructor(
       if (!audioOnly) {
         displayHdrSupported = DoviBridge.displaySupportsHdr(context)
         displayDvSupported = DoviBridge.displaySupportsDolbyVision(context)
-        emitLog("info", "display", "hdr=$displayHdrSupported dv=$displayDvSupported")
 
         frameRateManager = FrameRateManager(
           activity = activity,
           handler = handler,
           log = { emitLog("info", "framerate", it) }
+        )
+        emitLog(
+          "info",
+          "display",
+          "hdr=$displayHdrSupported dv=$displayDvSupported ${frameRateManager!!.describeDisplay()}"
         )
 
         surfaceContainer = PlayerSurfaceHost.createContainer(activity)
@@ -676,7 +841,7 @@ class MpvPlayerCore private constructor(
         }
         contentView.viewTreeObserver.addOnGlobalLayoutListener(overlayLayoutListener)
 
-        Log.d(TAG, "SurfaceView added to content view")
+        PlayerDebugLog.d(TAG) { "SurfaceView added to content view" }
       }
 
       scope.launch {
@@ -711,6 +876,9 @@ class MpvPlayerCore private constructor(
           val p = writeOperations.run("initialization") {
             withContext(NonCancellable) {
               val created = MpvPlayer.create(context.applicationContext) {
+                // The level Dart hands us at `initialize` drives mpv's own
+                // verbosity and the Kotlin-side traces alike.
+                PlayerDebugLog.applyLogLevel(initialLogLevel)
                 setLogLevel(initialLogLevel)
                 if (audioOnly) {
                   // Pure audio core (all set before mpv_initialize, mirroring the
@@ -790,18 +958,14 @@ class MpvPlayerCore private constructor(
           }
           if (demuxerBudget != null) {
             appliedDemuxerBudget = demuxerBudget
+            steadyDemuxerBudget = demuxerBudget
             // In the uploadable log, not logcat: what a session starts with is
             // half the answer to a starving-cache report.
-            emitLog(
-              "info",
-              "memory",
-              "demuxer budget -> ${demuxerBudget.aheadBytes / (1024 * 1024)}MB ahead, " +
-                "${demuxerBudget.backBytes / (1024 * 1024)}MB back (heap class ${heapClassMB}MB)"
-            )
+            emitLog("info", "memory", "${describeBounds(demuxerBudget)} (heap class ${heapClassMB}MB)")
           }
           if (displayFpsOverride != null) {
             publishedDisplayFpsOverride = displayFpsOverride
-            Log.d(TAG, "Initial display-fps-override=$displayFpsOverride")
+            PlayerDebugLog.d(TAG) { "Initial display-fps-override=$displayFpsOverride" }
           }
 
           if (disposing || nativeFailure.get() != null) {
@@ -839,7 +1003,7 @@ class MpvPlayerCore private constructor(
               try {
                 applyRenderTier(p, glVoActive = true)
               } catch (e: CancellationException) {
-                Log.d(TAG, "Canceled render tier setup")
+                PlayerDebugLog.d(TAG) { "Canceled render tier setup" }
               } catch (e: Exception) {
                 Log.w(TAG, "Render tier setup failed", e)
               }
@@ -872,7 +1036,7 @@ class MpvPlayerCore private constructor(
           // Public readiness last: the collectors and the observation above
           // are what a caller acting on isInitialized depends on.
           isInitialized = true
-          Log.d(TAG, "Initialized successfully")
+          PlayerDebugLog.d(TAG) { "Initialized successfully" }
           onResult(true)
         } catch (e: Throwable) {
           Log.e(TAG, "Failed to initialize native: ${e.message}", e)
@@ -926,14 +1090,17 @@ class MpvPlayerCore private constructor(
             setGpuVoRequirement(GpuVoPolicy.REASON_CHAIN_FAILURE, false)
             setGpuVoRequirement(GpuVoPolicy.REASON_SW_DECODE, false)
             // The next file's rate arrives with its container-fps; until then
-            // there is nothing to vote for (Media3: Format.NO_VALUE).
+            // there is nothing to vote for (Media3: Format.NO_VALUE). Whether
+            // it is presented as fields is measured at its first frame.
             frameRateVote.onMediaFrameRate(0f)
+            frameRateVote.onFieldOutput(false)
             delegate?.onEvent("start-file", lifecycleData(event.sourceId))
           }
           is MpvEvent.FileLoaded -> {
             delegate?.onEvent("file-loaded", lifecycleData(event.sourceId))
           }
           is MpvEvent.PlaybackRestart -> {
+            if (!audioOnly) measureFieldOutput()
             delegate?.onEvent(
               "playback-restart",
               lifecycleData(event.sourceId, event.positionSeconds)
@@ -963,7 +1130,12 @@ class MpvPlayerCore private constructor(
         // native observer here would double every change Dart receives.
         if (change.name == "pause" && change is PropertyChange.Flag) {
           cachedPaused = change.value
-          if (change.value) frameRateVote.onStopped() else frameRateVote.onStarted()
+          if (change.value) {
+            frameRateVote.onStopped()
+          } else {
+            frameRateVote.onStarted()
+            if (!audioOnly) measureFieldOutput()
+          }
         }
         if (change.name == "speed" && change is PropertyChange.Double) {
           frameRateVote.onPlaybackSpeed(change.value.toFloat())
@@ -979,6 +1151,42 @@ class MpvPlayerCore private constructor(
       p.propertyFlow.filterIsInstance<PropertyChange.Double>().filter { it.name == "container-fps" }.collect { change ->
         frameRateVote.onMediaFrameRate(change.value.toFloat())
       }
+    }
+  }
+
+  /** The pending [measureFieldOutput] delay; a newer trigger supersedes it. */
+  private var fieldOutputMeasurement: Job? = null
+
+  /**
+   * Whether the stream is presented one frame per field ([PresentedFrameRate]),
+   * feeding the Surface vote. `estimated-vf-fps` is mpv's ten-frame average
+   * of shown frames, so it is honest only once playback has run: on the
+   * paused first frame Tegra has no interval yet and MediaTek's first field
+   * pair carries a duplicate timestamp. Hence the read is scheduled a moment
+   * after each playback restart and each unpause, superseding any pending one,
+   * and reads nothing while paused (the vote is cleared then anyway). Observing
+   * the property instead would forward a notification per frame to Dart.
+   */
+  private fun measureFieldOutput() {
+    fieldOutputMeasurement?.cancel()
+    fieldOutputMeasurement = scope.launch {
+      delay(FIELD_OUTPUT_SETTLE_MS)
+      if (disposing || cachedPaused) return@launch
+      val fieldOutput = try {
+        readOperations.run("presented rate") {
+          PresentedFrameRate.presentsFields(
+            containerFps = readProperty("container-fps")?.toDoubleOrNull() ?: 0.0,
+            estimatedFps = readProperty("estimated-vf-fps")?.toDoubleOrNull(),
+            deinterlaceActive = readProperty("deinterlace-active") == "yes"
+          )
+        }
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        Log.w(TAG, "Presented rate unreadable", e)
+        return@launch
+      }
+      if (!disposing) frameRateVote.onFieldOutput(fieldOutput)
     }
   }
 
@@ -1020,7 +1228,7 @@ class MpvPlayerCore private constructor(
   // SurfaceHolder.Callback
 
   override fun surfaceCreated(holder: SurfaceHolder) {
-    Log.d(TAG, "Surface created")
+    PlayerDebugLog.d(TAG) { "Surface created" }
     if (disposing) return
 
     val surface = holder.surface
@@ -1029,7 +1237,7 @@ class MpvPlayerCore private constructor(
     videoOutputEpoch += 1L
     rememberCurrentSurfaceSize()
     if (player == null) {
-      Log.d(TAG, "Deferring video output refresh until MPV init completes")
+      PlayerDebugLog.d(TAG) { "Deferring video output refresh until MPV init completes" }
       return
     }
 
@@ -1037,13 +1245,13 @@ class MpvPlayerCore private constructor(
   }
 
   override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-    Log.d(TAG, "Surface changed: ${width}x$height")
+    PlayerDebugLog.d(TAG) { "Surface changed: ${width}x$height" }
     rememberSurfaceSize(width, height)
     refreshVideoOutput("surfaceChanged")
   }
 
   override fun surfaceDestroyed(holder: SurfaceHolder) {
-    Log.d(TAG, "Surface destroyed")
+    PlayerDebugLog.d(TAG) { "Surface destroyed" }
     pendingSurface = null
     if (disposing) {
       awaitNativeDisposal()
@@ -1060,7 +1268,7 @@ class MpvPlayerCore private constructor(
       if (disposing) return
       pendingOsdSurface = holder.surface.takeIf { it.isValid }
       osdSurfaceGeneration += 1L
-      Log.d(TAG, "OSD surface created")
+      PlayerDebugLog.d(TAG) { "OSD surface created" }
       videoOutputEpoch += 1L
       if (player != null && currentCandidateSurface() != null) {
         refreshVideoOutput("osdSurfaceCreated")
@@ -1074,7 +1282,7 @@ class MpvPlayerCore private constructor(
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-      Log.d(TAG, "OSD surface destroyed")
+      PlayerDebugLog.d(TAG) { "OSD surface destroyed" }
       pendingOsdSurface = null
       if (disposing) {
         awaitNativeDisposal()
@@ -1193,7 +1401,7 @@ class MpvPlayerCore private constructor(
             }
           }
         } catch (e: CancellationException) {
-          Log.d(TAG, "Canceled vo transition write")
+          PlayerDebugLog.d(TAG) { "Canceled vo transition write" }
         } catch (e: Exception) {
           runOnMain { failVideoOutput("VO transition", e) }
         }
@@ -1209,14 +1417,42 @@ class MpvPlayerCore private constructor(
    * file, so a following non-P5 file restores hardware decode and returns
    * to the video plane. [track] is the pending video track, see
    * [pendingVideoTrack].
+   *
+   * Native P5 support is what the bundled FFmpeg will actually open
+   * ([GpuVoPolicy.nativeP5Decoder]), not what the device advertises under
+   * every DV MIME type: the two disagreed on devices whose only DV decoder
+   * FFmpeg never probes, and the P5 base layer then reached the plane as
+   * plain HEVC with inverted hue. [collectDecoderState] covers the case
+   * where even the predicted decoder fails to open.
+   *
+   * Verify the plane's DV output on the panel, never from a screencap or
+   * the SurfaceFlinger layer tags: on MediaTek (MT8696) and Amlogic the
+   * decoder's buffers carry the un-reshaped IPTPQc2 base layer tagged
+   * BT.2020 with an SDR transfer, and the HWC applies the RPU after the
+   * readback point. A capture shows inverted hue while the display is in
+   * Dolby Vision mode with correct colour - measured on a Google TV
+   * Streamer with this path and with ExoPlayer, identical captures, both
+   * correct on the panel. That capture once cost this file a MediaTek
+   * exclusion that sent every P5 file into software decode.
    */
   private suspend fun applyDvReshapePolicy(p: MpvPlayer, track: org.json.JSONObject?) {
     val profile = track?.takeIf { it.has("dolby-vision-profile") }?.getLong("dolby-vision-profile")
+    pendingDvProfile = profile
+    val mode = currentDvConversionMode
+    val nativeDecoder = GpuVoPolicy.nativeP5Decoder(dvDecoderCandidates)
     val needs = GpuVoPolicy.needsDvReshaping(
       dvProfile = profile,
-      conversionMode = currentDvConversionMode,
-      canPlayP5Natively = DoviBridge.canPlayDolbyVisionP5()
+      conversionMode = mode,
+      canPlayP5Natively = nativeDecoder != null
     )
+    if (profile != null) {
+      // Unconditional for every DV file: this line is what a wrong-colour
+      // report is diagnosed from, on the device and in the uploaded log.
+      val decision = "profile=$profile mode=$mode nativeP5Decoder=${nativeDecoder ?: "none"} " +
+        "displayDv=$displayDvSupported path=${if (needs) "software decode + gpu-next reshaping" else "video plane"}"
+      Log.i(TAG, "DV routing: $decision")
+      emitLog("info", "dv-route", decision)
+    }
     if (holdHwdec(p, GpuVoPolicy.REASON_DV_RESHAPE, needs) && needs) {
       Log.i(TAG, "DV P5 (bitstream) without native support: software decode + gpu-next reshaping")
     }
@@ -1236,7 +1472,7 @@ class MpvPlayerCore private constructor(
     val codecProfile = track?.optString("codec-profile")
     val hardwareHigh10 = MediaCodecQuery.hardwareAvcHigh10Support()
     val hardwareAv1 = MediaCodecQuery.hardwareAv1Support()
-    Log.d(TAG, "Decode routing: codec=$codec profile=$codecProfile hardwareHigh10=$hardwareHigh10 hardwareAv1=$hardwareAv1")
+    PlayerDebugLog.d(TAG) { "Decode routing: codec=$codec profile=$codecProfile hardwareHigh10=$hardwareHigh10 hardwareAv1=$hardwareAv1" }
     val needs = GpuVoPolicy.needsSoftwareDecode(codec, codecProfile, hardwareHigh10, hardwareAv1)
     if (holdHwdec(p, GpuVoPolicy.REASON_CODEC_SW_DECODE, needs) && needs) {
       Log.i(TAG, "$codec profile=$codecProfile without hardware support: native software decode on the GL vo")
@@ -1298,7 +1534,7 @@ class MpvPlayerCore private constructor(
       for ((option, cheap) in GpuVoPolicy.CHEAP_RENDER_OPTIONS) {
         val current = p.getString(option)
         if (!GpuVoPolicy.isDefaultRenderOption(option, current)) {
-          Log.d(TAG, "Render tier keeps $option=$current (not the mpv default)")
+          PlayerDebugLog.d(TAG) { "Render tier keeps $option=$current (not the mpv default)" }
           continue
         }
         replaced[option] = current!!
@@ -1333,7 +1569,7 @@ class MpvPlayerCore private constructor(
       Log.w(TAG, "libmpv has no pending-vid property; decode routing assumes the first video track")
     }
     val id = GpuVoPolicy.pendingVideoTrackId(vid, pendingVid, tracks.map { it.optLong("id") })
-    Log.d(TAG, "Pending video track: vid=$vid pending-vid=$pendingVid -> ${id ?: "none"} of ${tracks.size}")
+    PlayerDebugLog.d(TAG) { "Pending video track: vid=$vid pending-vid=$pendingVid -> ${id ?: "none"} of ${tracks.size}" }
     return tracks.firstOrNull { it.optLong("id") == id }
   }
 
@@ -1383,11 +1619,21 @@ class MpvPlayerCore private constructor(
    * fresh decoder under the GL vo reports `mediacodec` again would send the
    * session back to the plane, whose rebuild re-creates the decoder, which
    * fails the same way — an endless plane/GL oscillation (#2272).
+   *
+   * A P5 file that lands in software decode also raises
+   * [GpuVoPolicy.REASON_DV_RESHAPE], whatever [applyDvReshapePolicy]
+   * predicted: plain `sw-decode` targets `gpu`, which composites no RPU, and
+   * the base layer would scan out as SDR BT.2020. That reason is per file
+   * too — the next file's hook re-evaluates it.
    */
   private fun collectDecoderState(p: MpvPlayer) {
     scope.launch(start = CoroutineStart.UNDISPATCHED) {
       p.propertyFlow.filterIsInstance<PropertyChange.Str>().filter { it.name == "hwdec-current" }.collect { change ->
         if (GpuVoPolicy.needsSoftwareRender(change.value)) setGpuVoRequirement(GpuVoPolicy.REASON_SW_DECODE, true)
+        if (GpuVoPolicy.softwareDecodeNeedsDvReshaping(pendingDvProfile, currentDvConversionMode, change.value)) {
+          Log.i(TAG, "DV P5 decoded in software (hwdec-current=${change.value}): gpu-next reshaping")
+          setGpuVoRequirement(GpuVoPolicy.REASON_DV_RESHAPE, true)
+        }
       }
     }
   }
@@ -1569,13 +1815,13 @@ class MpvPlayerCore private constructor(
     val surface = currentCandidateSurface()
     if (p == null) {
       pendingSurface = surface?.takeIf { it.isValid }
-      Log.d(TAG, "refreshVideoOutput($reason): player not ready yet")
+      PlayerDebugLog.d(TAG) { "refreshVideoOutput($reason): player not ready yet" }
       return
     }
 
     if (surface == null || !surface.isValid) {
       videoOutputRestoring = true
-      Log.d(TAG, "refreshVideoOutput($reason): no valid surface available")
+      PlayerDebugLog.d(TAG) { "refreshVideoOutput($reason): no valid surface available" }
       return
     }
 
@@ -1583,17 +1829,17 @@ class MpvPlayerCore private constructor(
     videoOutputRestoring = true
     flutterOverlayApplied = false
     ensureFlutterOverlayOnTop()
-    Log.d(TAG, "refreshVideoOutput($reason): scheduling async refresh (epoch=$refreshEpoch)")
+    PlayerDebugLog.d(TAG) { "refreshVideoOutput($reason): scheduling async refresh (epoch=$refreshEpoch)" }
     pendingVideoOutputRefreshJob = launchMpvWrite("video output refresh") {
       try {
         videoOutputMutex.withLock {
           if (!isCurrentVideoOutputEpoch(refreshEpoch)) {
-            Log.d(TAG, "Skipping stale MPV video output refresh ($reason, epoch=$refreshEpoch)")
+            PlayerDebugLog.d(TAG) { "Skipping stale MPV video output refresh ($reason, epoch=$refreshEpoch)" }
             return@withLock
           }
           if (!surface.isValid) {
             videoOutputRestoring = true
-            Log.d(TAG, "Skipping MPV video output refresh with invalid surface ($reason, epoch=$refreshEpoch)")
+            PlayerDebugLog.d(TAG) { "Skipping MPV video output refresh with invalid surface ($reason, epoch=$refreshEpoch)" }
             return@withLock
           }
 
@@ -1611,19 +1857,19 @@ class MpvPlayerCore private constructor(
             attachedSurface = surface
             hasAttachedSurface = true
             attachedToPlaceholder = false
-            Log.d(TAG, "refreshVideoOutput($reason): attached surface")
+            PlayerDebugLog.d(TAG) { "refreshVideoOutput($reason): attached surface" }
           } else {
-            Log.d(TAG, "refreshVideoOutput($reason): surface already attached, refreshing surface state")
+            PlayerDebugLog.d(TAG) { "refreshVideoOutput($reason): surface already attached, refreshing surface state" }
           }
           syncSurfaceFrameRateVote()
 
           if (!isVideoOutputRefreshCurrent(refreshEpoch)) {
-            Log.d(TAG, "Skipping stale MPV video output refresh after attach ($reason, epoch=$refreshEpoch)")
+            PlayerDebugLog.d(TAG) { "Skipping stale MPV video output refresh after attach ($reason, epoch=$refreshEpoch)" }
             return@withLock
           }
           applySurfaceSizeInternal(p, force = true)
           if (!isVideoOutputRefreshCurrent(refreshEpoch)) {
-            Log.d(TAG, "Skipping stale MPV video output refresh after surface size ($reason, epoch=$refreshEpoch)")
+            PlayerDebugLog.d(TAG) { "Skipping stale MPV video output refresh after surface size ($reason, epoch=$refreshEpoch)" }
             return@withLock
           }
           applyVideoRectLayout(force = needsAttach)
@@ -1631,15 +1877,15 @@ class MpvPlayerCore private constructor(
           applyDeferredResumeIfNeeded(p, reason)
           if (wasPausedForSurfaceLoss) {
             pausedForSurfaceLoss = false
-            Log.d(TAG, "Cleared surface-loss pause after $reason")
+            PlayerDebugLog.d(TAG) { "Cleared surface-loss pause after $reason" }
           }
           if (wasAttachedToPlaceholder) {
-            Log.d(TAG, "Restored MPV real surface after placeholder ($reason)")
+            PlayerDebugLog.d(TAG) { "Restored MPV real surface after placeholder ($reason)" }
           }
-          Log.d(TAG, "Video output ready after $reason")
+          PlayerDebugLog.d(TAG) { "Video output ready after $reason" }
         }
       } catch (e: CancellationException) {
-        Log.d(TAG, "Canceled pending MPV video output refresh ($reason, epoch=$refreshEpoch)")
+        PlayerDebugLog.d(TAG) { "Canceled pending MPV video output refresh ($reason, epoch=$refreshEpoch)" }
       } catch (e: Exception) {
         runOnMain { failVideoOutput("refresh ($reason)", e) }
       }
@@ -1670,14 +1916,27 @@ class MpvPlayerCore private constructor(
     if (!force && size == lastAppliedSurfaceSize) return
     p.setProperty("android-surface-size", size)
     lastAppliedSurfaceSize = size
-    Log.d(TAG, "Applied MPV surface size $size${if (force) " (forced)" else ""}")
+    PlayerDebugLog.d(TAG) { "Applied MPV surface size $size${if (force) " (forced)" else ""}" }
   }
 
   /**
    * SurfaceHolder requires consumers to stop using a surface before destruction
    * returns. The worker and GL placeholder never need the main looper to finish.
-   * A timeout is a terminal output failure, not permission to mark it ready or
-   * release references still held by native code.
+   *
+   * The retirement is one more write on [writeOperations]: behind a busy core
+   * it waits its turn, and it is itself a `wid` switch that makes mpv rebuild
+   * the video chain, so on a 4K software session it can outlive the main
+   * thread's [SURFACE_HANDOFF_TIMEOUT_MS]. Past that budget Android takes the
+   * surface back with mpv still bound to it whatever happens here. Condemning
+   * the session would not retire it either: it closes the queue on the very
+   * retirement still waiting in it, leaving mpv on the abandoned window until
+   * teardown. So an unacknowledged handoff is not an output failure. The
+   * retirement stays queued and rebinds mpv the moment the core answers - an
+   * abandoned window costs frames, not the session - while the output stays
+   * restoring, so nothing is marked ready and no native reference is released
+   * before then. A core that never answers is condemned by the write queue's
+   * own bound, the single verdict on a wedged core. Only a retirement that
+   * actually fails (no valid surface, a refused attach) is an output failure.
    */
   private fun handoffDestroyedSurface(reason: String, videoLost: Boolean) {
     val p = player ?: return
@@ -1746,7 +2005,7 @@ class MpvPlayerCore private constructor(
             applyDeferredResumeIfNeeded(p, reason)
             pausedForSurfaceLoss = false
           }
-          Log.d(TAG, "Surface handoff complete ($reason, epoch=$epoch, placeholder=$isPlaceholder)")
+          PlayerDebugLog.d(TAG) { "Surface handoff complete ($reason, epoch=$epoch, placeholder=$isPlaceholder)" }
         }
       } catch (error: Exception) {
         failure.set(error)
@@ -1759,11 +2018,13 @@ class MpvPlayerCore private constructor(
       completed.await(SURFACE_HANDOFF_TIMEOUT_MS, TimeUnit.MILLISECONDS)
     } catch (error: InterruptedException) {
       Thread.currentThread().interrupt()
-      failure.set(error)
       false
     }
-    if (!acknowledged || failure.get() != null) {
-      failVideoOutput(reason, failure.get() ?: MpvException("Surface handoff timed out after ${SURFACE_HANDOFF_TIMEOUT_MS}ms"))
+    val error = failure.get()
+    if (error != null) {
+      failVideoOutput(reason, error)
+    } else if (!acknowledged) {
+      Log.w(TAG, "Surface handoff ($reason) unacknowledged after ${SURFACE_HANDOFF_TIMEOUT_MS}ms; retirement stays queued")
     }
   }
 
@@ -1776,7 +2037,7 @@ class MpvPlayerCore private constructor(
    */
   private fun failVideoOutput(reason: String, error: Exception) {
     if (disposing || videoOutputFailure != null) return
-    // A direct caller (a surface handoff that never acknowledged) condemns
+    // A direct caller (a surface retirement or refresh that failed) condemns
     // here; one arriving from failNativeOperations finds the latch already set.
     condemnSession(error)
     videoOutputFailure = error
@@ -1819,7 +2080,7 @@ class MpvPlayerCore private constructor(
       (!desiredPaused).also { pausedForAudioFocusLoss = it }
     }
     if (!shouldPause) {
-      Log.d(TAG, "Skipping audio-focus pause because playback is already desirably paused")
+      PlayerDebugLog.d(TAG) { "Skipping audio-focus pause because playback is already desirably paused" }
       return
     }
 
@@ -1831,7 +2092,7 @@ class MpvPlayerCore private constructor(
           cachedPaused = true
         }
       } catch (error: CancellationException) {
-        Log.d(TAG, "Canceled audio-focus pause")
+        PlayerDebugLog.d(TAG) { "Canceled audio-focus pause" }
       } catch (error: Exception) {
         Log.w(TAG, "Failed to pause on focus loss", error)
       }
@@ -1878,13 +2139,13 @@ class MpvPlayerCore private constructor(
     val intentGeneration = synchronized(publicPauseIntentLock) {
       if (resumeBlockedByPublicPause) {
         deferredResumeRequested = false
-        Log.d(TAG, "Skipping auto-resume after $reason because playback is explicitly paused")
+        PlayerDebugLog.d(TAG) { "Skipping auto-resume after $reason because playback is explicitly paused" }
         return
       }
 
       if (!hasReadyVideoOutput()) {
         deferredResumeRequested = true
-        Log.d(TAG, "Deferring auto-resume after $reason until video output is ready")
+        PlayerDebugLog.d(TAG) { "Deferring auto-resume after $reason until video output is ready" }
         return
       }
       publicPauseIntentGeneration
@@ -1899,12 +2160,12 @@ class MpvPlayerCore private constructor(
               publicPauseIntentGeneration == intentGeneration
           }
           if (!shouldResume) {
-            Log.d(TAG, "Skipping stale auto-resume after $reason")
+            PlayerDebugLog.d(TAG) { "Skipping stale auto-resume after $reason" }
             return@withLock
           }
           val isPaused = p?.getFlag("pause") ?: cachedPaused
           if (isPaused) {
-            Log.d(TAG, "Auto-resuming playback after $reason")
+            PlayerDebugLog.d(TAG) { "Auto-resuming playback after $reason" }
             if (p != null) {
               p.setProperty("pause", false)
             } else {
@@ -1912,7 +2173,7 @@ class MpvPlayerCore private constructor(
             }
             cachedPaused = false
           } else {
-            Log.d(TAG, "Skipping auto-resume after $reason because playback is already running")
+            PlayerDebugLog.d(TAG) { "Skipping auto-resume after $reason because playback is already running" }
           }
         }
       } catch (e: Exception) {
@@ -1927,11 +2188,11 @@ class MpvPlayerCore private constructor(
         if (!deferredResumeRequested) {
           false
         } else if (pausedForAudioFocusLoss) {
-          Log.d(TAG, "Keeping deferred auto-resume pending after $reason until audio focus returns")
+          PlayerDebugLog.d(TAG) { "Keeping deferred auto-resume pending after $reason until audio focus returns" }
           false
         } else if (resumeBlockedByPublicPause) {
           deferredResumeRequested = false
-          Log.d(TAG, "Dropping deferred auto-resume after $reason because playback is explicitly paused")
+          PlayerDebugLog.d(TAG) { "Dropping deferred auto-resume after $reason because playback is explicitly paused" }
           false
         } else {
           deferredResumeRequested = false
@@ -1940,11 +2201,11 @@ class MpvPlayerCore private constructor(
       }
       if (!shouldResume) return@withLock
       if (p.getFlag("pause") == true) {
-        Log.d(TAG, "Applying deferred auto-resume after $reason")
+        PlayerDebugLog.d(TAG) { "Applying deferred auto-resume after $reason" }
         p.setProperty("pause", false)
         cachedPaused = false
       } else {
-        Log.d(TAG, "Skipping deferred auto-resume after $reason because playback is already running")
+        PlayerDebugLog.d(TAG) { "Skipping deferred auto-resume after $reason because playback is already running" }
       }
     }
   }
@@ -1999,7 +2260,7 @@ class MpvPlayerCore private constructor(
         cachedPaused = false
       }
     }
-    Log.d(TAG, "Load pause intent updated: paused=$paused")
+    PlayerDebugLog.d(TAG) { "Load pause intent updated: paused=$paused" }
   }
 
   /**
@@ -2196,11 +2457,11 @@ class MpvPlayerCore private constructor(
           }
         }
         if (interruptedAgain) {
-          Log.d(TAG, "Public resume deferred by a newer audio-focus loss")
+          PlayerDebugLog.d(TAG) { "Public resume deferred by a newer audio-focus loss" }
           onComplete?.invoke(Result.success(Unit))
         } else {
           if (deferredForSurface) {
-            Log.d(TAG, "Deferring public resume until video output is ready")
+            PlayerDebugLog.d(TAG) { "Deferring public resume until video output is ready" }
           }
           onComplete?.invoke(Result.success(Unit))
         }
@@ -2222,7 +2483,7 @@ class MpvPlayerCore private constructor(
         cachedPaused = paused
         pausedForSurfaceLoss = false
         deferredResumeRequested = false
-        Log.d(TAG, "Public pause state updated: paused=$paused")
+        PlayerDebugLog.d(TAG) { "Public pause state updated: paused=$paused" }
       }
       onComplete?.invoke(completion)
     }) {
@@ -2334,6 +2595,7 @@ class MpvPlayerCore private constructor(
       "videoHeight" to readProperty("dheight"),
       "container-fps" to readProperty("container-fps"),
       "estimated-vf-fps" to readProperty("estimated-vf-fps"),
+      "deinterlace-active" to readProperty("deinterlace-active"),
       "video-bitrate" to readProperty("video-bitrate"),
       "hwdec-current" to readProperty("hwdec-current"),
       "current-vo" to readProperty("current-vo"),
@@ -2441,7 +2703,7 @@ class MpvPlayerCore private constructor(
           }
         }
       }
-      Log.d(TAG, "setVisible($visible)")
+      PlayerDebugLog.d(TAG) { "setVisible($visible)" }
     }
   }
 
@@ -2459,7 +2721,7 @@ class MpvPlayerCore private constructor(
       rememberCurrentSurfaceSize()
       val p = player
       if (p == null) {
-        Log.d(TAG, "updateFrame(): skipping Android MPV surface refresh because player is not ready")
+        PlayerDebugLog.d(TAG) { "updateFrame(): skipping Android MPV surface refresh because player is not ready" }
         return@runOnMain
       }
       if (!hasReadyVideoOutput()) {
@@ -2468,7 +2730,7 @@ class MpvPlayerCore private constructor(
           pendingSurface = surface
           refreshVideoOutput("updateFrame")
         } else {
-          Log.d(TAG, "updateFrame(): skipping Android MPV surface refresh because no surface is attached")
+          PlayerDebugLog.d(TAG) { "updateFrame(): skipping Android MPV surface refresh because no surface is attached" }
         }
         return@runOnMain
       }
@@ -2528,7 +2790,16 @@ class MpvPlayerCore private constructor(
     queued.forEach { it.invoke() }
   }
 
-  fun dispose(onComplete: (() -> Unit)? = null) {
+  /**
+   * [preserveDisplayMode] keeps the window's preferredDisplayModeId across
+   * a player→player replacement (the successor inherits the rate without a
+   * second HDMI renegotiation); false restores the display's default mode,
+   * deferred past the HDR exit when the session output HDR
+   * ([FrameRateManager.clearVideoFrameRate]). Restoring here, not only from
+   * Dart's explicit `clearVideoFrameRate`, is what covers activity and
+   * engine detach, which never reach that call.
+   */
+  fun dispose(preserveDisplayMode: Boolean = false, onComplete: (() -> Unit)? = null) {
     if (disposing) {
       // Answering now would report a teardown that is still running; the
       // in-flight disposal settles this caller too.
@@ -2545,7 +2816,7 @@ class MpvPlayerCore private constructor(
     }
     disposing = true
     check(Looper.myLooper() == Looper.getMainLooper())
-    Log.d(TAG, "Disposing")
+    PlayerDebugLog.d(TAG) { "Disposing" }
     synchronized(pendingDisposalCallbacks) { disposalSettled = false }
 
     val disposalComplete = CountDownLatch(1)
@@ -2555,11 +2826,15 @@ class MpvPlayerCore private constructor(
 
     handler.removeCallbacksAndMessages(null)
 
-    // Clean up frame rate and audio focus.
-    // releasePending (not clearVideoFrameRate): symmetric with ExoPlayerCore —
-    // dispose only releases the listener/pending future. Restoring the
-    // display mode is the explicit Dart-side clearVideoFrameRate's job.
-    frameRateManager?.releasePending()
+    // Clean up frame rate and audio focus. The display-mode restore is owned
+    // here; Dart's explicit clearVideoFrameRate before dispose is idempotent
+    // against it (the manager returns once preferredDisplayModeId is 0, and
+    // re-arms the same deferred HDR restore otherwise). The deferred restore
+    // runs on the manager's own handler, not [handler], so the wholesale
+    // removeCallbacksAndMessages above cannot cancel it.
+    frameRateManager?.let { manager ->
+      if (preserveDisplayMode) manager.releasePending() else manager.clearVideoFrameRate(hdrActive = hdrDisplayActive)
+    }
     frameRateManager = null
     audioFocusManager?.release()
     audioFocusManager = null
@@ -2572,6 +2847,8 @@ class MpvPlayerCore private constructor(
     scope.cancel()
     pendingVideoOutputRefreshJob?.cancel()
     pendingVideoOutputRefreshJob = null
+    demuxerRestoreJob?.cancel()
+    demuxerRestoreJob = null
     writeOperations.close()
     readOperations.close()
 
@@ -2656,7 +2933,7 @@ class MpvPlayerCore private constructor(
         }
         retiringPlaceholder?.close()
         player = null
-        Log.d(TAG, "Disposed (native)")
+        PlayerDebugLog.d(TAG) { "Disposed (native)" }
         Handler(Looper.getMainLooper()).post {
           sv?.holder?.removeCallback(this)
           osdSv?.holder?.removeCallback(osdSurfaceCallback)

@@ -105,8 +105,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "12ef3ff758709e3ceab8eccd6d43e0dea1c68ca1"
-      resolved-ref: "12ef3ff758709e3ceab8eccd6d43e0dea1c68ca1"
+      ref: c52103f4a2d683c22ce3b8b8661da610644bfef1
+      resolved-ref: c52103f4a2d683c22ce3b8b8661da610644bfef1
       url: "https://github.com/edde746/background_downloader"
     source: git
     version: "9.5.6"
@@ -256,7 +256,7 @@ packages:
     source: git
     version: "7.2.0"
   connectivity_plus_platform_interface:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: connectivity_plus_platform_interface
       sha256: "3c09627c536d22fd24691a905cdd8b14520de69da52c7a97499c8be5284a32ed"
