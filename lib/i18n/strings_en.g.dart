@@ -7579,6 +7579,8 @@ extension on Translations {
 			'fileInfo.subtitleFormat' => 'Sidecar Format',
 			'fileInfo.provider' => 'Provider',
 			'fileInfo.matchScore' => 'Match Score',
+			_ => null,
+		} ?? switch (path) {
 			'fileInfo.externalDelivery' => 'Can Be Served Separately',
 			'fileInfo.sidecarPath' => 'Sidecar Path',
 			'fileInfo.sourceStream' => 'Copied From',
@@ -7586,8 +7588,6 @@ extension on Translations {
 			'fileInfo.timeBase' => 'Time Base',
 			'fileInfo.overallBitrate' => 'Overall Bitrate',
 			'fileInfo.path' => 'Path',
-			_ => null,
-		} ?? switch (path) {
 			'fileInfo.fileName' => 'File Name',
 			'fileInfo.size' => 'Size',
 			'fileInfo.totalSize' => 'Total Size',
@@ -8093,6 +8093,8 @@ extension on Translations {
 			'libraries.manageLibraries' => 'Manage Libraries',
 			'libraries.sort' => 'Sort',
 			'libraries.sortBy' => 'Sort By',
+			_ => null,
+		} ?? switch (path) {
 			'libraries.filters' => 'Filters',
 			'libraries.confirmActionMessage' => 'Are you sure you want to perform this action?',
 			'libraries.showLibrary' => 'Show library',
@@ -8100,8 +8102,6 @@ extension on Translations {
 			'libraries.libraryOptions' => 'Library options',
 			'libraries.content' => 'library content',
 			'libraries.selectLibrary' => 'Select library',
-			_ => null,
-		} ?? switch (path) {
 			'libraries.filtersWithCount' => ({required Object count}) => 'Filters (${count})',
 			'libraries.noRecommendations' => 'No recommendations available',
 			'libraries.noCollections' => 'No collections in this library',
@@ -8607,6 +8607,8 @@ extension on Translations {
 			'downloads.deleteConfirm' => ({required Object title}) => 'Delete "${title}" from this device?',
 			'downloads.cancelledDownloadTitle' => 'Canceled Download',
 			'downloads.cancelledDownloadMessage' => 'This download was canceled. What would you like to do?',
+			_ => null,
+		} ?? switch (path) {
 			'downloads.allEpisodesAlreadyDownloaded' => 'All episodes already downloaded',
 			'downloads.resumeDownload' => 'Resume download',
 			'downloads.cancelledDownload' => 'Canceled download',
@@ -8614,8 +8616,6 @@ extension on Translations {
 			'downloads.downloadedFileClickToComplete' => ({required Object file}) => 'Downloaded ${file} - Click to complete',
 			'downloads.partialDownloadClickToComplete' => 'Partially downloaded - Click to complete',
 			'downloads.deleting' => 'Deleting...',
-			_ => null,
-		} ?? switch (path) {
 			'downloads.deletingWithProgress' => ({required Object title, required Object current, required Object total}) => 'Deleting ${title}... (${current} of ${total})',
 			'downloads.queuedTooltip' => 'Queued',
 			'downloads.queuedFilesTooltip' => ({required Object files}) => 'Queued ${files}',
