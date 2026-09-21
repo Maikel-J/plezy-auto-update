@@ -285,8 +285,10 @@ jobs:
           RELEASE_ASSETS: ${{ runner.temp }}/android-release-signed
         run: |
           set -euo pipefail
-          cd "$RELEASE_ASSETS"
-          sha256sum -c SHA256SUMS
+          (
+            cd "$RELEASE_ASSETS"
+            sha256sum -c SHA256SUMS
+          )
           python3 - <<'PY'
           import json, os, re
           from pathlib import Path
@@ -321,16 +323,16 @@ jobs:
                   raise SystemExit(f'Missing signed APK for {abi}')
           PY
           SOURCE_SHA="$(python3 -c 'import json,os; print(json.load(open(os.path.join(os.environ["RELEASE_ASSETS"], "upstream-release.json")))["source_sha"])')"
-          git fetch "$RELEASE_ASSETS/source.bundle" HEAD
-          test "$(git rev-parse FETCH_HEAD)" = "$SOURCE_SHA"
-          git checkout --detach FETCH_HEAD
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          git grep -q 'ANDROID_UPDATE_REPOSITORY' -- lib/services/update_service.dart
-          git grep -q 'AndroidUpdateAsset.select' -- lib/services/update_service.dart
-          git grep -q 'downloadAndInstall' -- lib/utils/update_dialog.dart
-          git grep -q 'appUpdateChannel.attach' -- android/app/src/main/kotlin/com/edde746/plezy/MainActivity.kt
-          git grep -q 'SIGNATURE_MISMATCH' -- android/app/src/main/kotlin/com/edde746/plezy/AppUpdateChannel.kt
-          git grep -q 'android.permission.REQUEST_INSTALL_PACKAGES' -- android/app/src/sideload/AndroidManifest.xml
+          git -C "$GITHUB_WORKSPACE" fetch "$RELEASE_ASSETS/source.bundle" HEAD
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse FETCH_HEAD)" = "$SOURCE_SHA"
+          git -C "$GITHUB_WORKSPACE" checkout --detach FETCH_HEAD
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$SOURCE_SHA"
+          git -C "$GITHUB_WORKSPACE" grep -q 'ANDROID_UPDATE_REPOSITORY' -- lib/services/update_service.dart
+          git -C "$GITHUB_WORKSPACE" grep -q 'AndroidUpdateAsset.select' -- lib/services/update_service.dart
+          git -C "$GITHUB_WORKSPACE" grep -q 'downloadAndInstall' -- lib/utils/update_dialog.dart
+          git -C "$GITHUB_WORKSPACE" grep -q 'appUpdateChannel.attach' -- android/app/src/main/kotlin/com/edde746/plezy/MainActivity.kt
+          git -C "$GITHUB_WORKSPACE" grep -q 'SIGNATURE_MISMATCH' -- android/app/src/main/kotlin/com/edde746/plezy/AppUpdateChannel.kt
+          git -C "$GITHUB_WORKSPACE" grep -q 'android.permission.REQUEST_INSTALL_PACKAGES' -- android/app/src/sideload/AndroidManifest.xml
 
       - name: Publish complete signed Android release
         env:
