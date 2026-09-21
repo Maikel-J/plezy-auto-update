@@ -188,7 +188,18 @@ jobs:
             test -s "$apk"
             test "$("$APKANALYZER" manifest application-id "$apk")" = 'com.edde746.plezy'
             test "$("$APKANALYZER" manifest version-name "$apk")" = "$VERSION"
-            test "$("$APKANALYZER" manifest version-code "$apk")" = "$BUILD_NUMBER"
+            case "$abi" in
+              armeabi-v7a) version_offset=1000 ;;
+              arm64-v8a) version_offset=2000 ;;
+              x86_64) version_offset=4000 ;;
+              *) echo "Unexpected Android ABI: $abi" >&2; exit 1 ;;
+            esac
+            expected_version_code="$((BUILD_NUMBER + version_offset))"
+            actual_version_code="$("$APKANALYZER" manifest version-code "$apk")"
+            if [ "$actual_version_code" != "$expected_version_code" ]; then
+              echo "Unexpected version code for $abi: got $actual_version_code, expected $expected_version_code" >&2
+              exit 1
+            fi
           done
 
       - name: Sign and verify APKs in isolated step
