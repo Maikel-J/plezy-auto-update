@@ -79,6 +79,22 @@ def select_release(upstream: list[dict], own: list[dict], latest_id: int) -> dic
     return min(pending, key=lambda r: (r["published_at"], r["id"]), default=None)
 
 
+def upstream_release_notes(plan: dict) -> str:
+    release = api(f"repos/{UPSTREAM}/releases/{plan['upstream_release_id']}")
+    if not isinstance(release, dict):
+        raise ValueError("Unexpected upstream release response")
+    if release.get("tag_name") != plan["upstream_tag"]:
+        raise ValueError("Upstream release tag changed")
+    if release.get("published_at") != plan["upstream_published_at"]:
+        raise ValueError("Upstream release publication timestamp changed")
+    if release.get("draft") or release.get("prerelease"):
+        raise ValueError("Upstream release is no longer stable")
+    body = (release.get("body") or "").strip()
+    if MARKER.search(body):
+        raise ValueError("Upstream release notes contain the fork's reserved completion marker")
+    return body
+
+
 def discover(plan_path: Path) -> None:
     repo = os.environ["GITHUB_REPOSITORY"]
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) or repo == UPSTREAM:
@@ -209,13 +225,17 @@ def publish(plan_path: Path, assets: Path) -> None:
     if not plan.get("retry_tag"):
         git("push", "origin", f"{plan['source_sha']}:refs/tags/{tag}")
     marker = f"<!-- plezy-upstream:{plan['upstream_release_id']} published:{plan['upstream_published_at']} build:{plan['build_number']} -->"
+    upstream_notes = upstream_release_notes(plan)
     notes = assets / "release-notes.md"
-    notes.write_text(
+    notes_text = (
         f"Android build of this fork incorporating [{plan['upstream_tag']}]({plan['upstream_url']}) and the in-app updater.\n\n"
         "Install the APK for your device. Future stable upstream releases are rebuilt automatically. "
         "Android asks you to approve installation. Updates require the same signing key; the first updater-enabled build must be installed manually.\n\n"
-        f"Source: `{plan['source_sha']}`\n\nAndroid build number: {plan['build_number']}\n\n{marker}\n"
     )
+    if upstream_notes:
+        notes_text += f"## Upstream {plan['upstream_tag']} release notes\n\n{upstream_notes}\n\n"
+    notes_text += f"Source: `{plan['source_sha']}`\n\nAndroid build number: {plan['build_number']}\n\n{marker}\n"
+    notes.write_text(notes_text)
     own = releases(repo)
     existing = next((r for r in own if r["tag_name"] == tag), None)
     if existing and not existing["draft"]:
