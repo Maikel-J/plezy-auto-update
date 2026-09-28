@@ -366,7 +366,7 @@ class AppDatabase extends _$AppDatabase {
   static const FormatException _invalidRecoveryImage = FormatException('Invalid tvOS database recovery image');
 
   @override
-  int get schemaVersion => 22;
+  int get schemaVersion => 23;
 
   @override
   MigrationStrategy get migration {
@@ -740,6 +740,17 @@ class AppDatabase extends _$AppDatabase {
           appLogger.i('Adding MusicSessions table (v22 migration)');
           await _ignoreAlreadyExists('MusicSessions table', () => m.createTable(musicSessions));
         }
+        if (from < 23) {
+          appLogger.i('Adding library identity columns to DownloadedMedia (v23 migration)');
+          await _ignoreAlreadyExists(
+            'DownloadedMedia.libraryId column',
+            () => m.addColumn(downloadedMedia, downloadedMedia.libraryId),
+          );
+          await _ignoreAlreadyExists(
+            'DownloadedMedia.libraryTitle column',
+            () => m.addColumn(downloadedMedia, downloadedMedia.libraryTitle),
+          );
+        }
       },
     );
   }
@@ -761,7 +772,6 @@ class AppDatabase extends _$AppDatabase {
     return value == null ? column.isNull() : column.equals(value);
   }
 
-  /// Get all pending offline watch actions for sync
   Future<List<OfflineWatchProgressItem>> getPendingWatchActions({String? profileId}) {
     final query = select(offlineWatchProgress)..orderBy([(t) => OrderingTerm.asc(t.createdAt)]);
     if (profileId != null) {
@@ -1056,23 +1066,16 @@ class AppDatabase extends _$AppDatabase {
   /// Update the retry state only if the action is still the snapshotted revision.
   Future<bool> updateSyncAttemptIfUnchanged(int id, int revision, String? errorMessage) {
     return _runPendingMutation(() async {
-      final existing = await (select(
-        offlineWatchProgress,
-      )..where((t) => t.id.equals(id) & t.updatedAt.equals(revision))).getSingleOrNull();
-      if (existing == null) return false;
-
-      final updated = await (update(offlineWatchProgress)..where((t) => t.id.equals(id) & t.updatedAt.equals(revision)))
-          .write(
-            OfflineWatchProgressCompanion(
-              syncAttempts: Value(existing.syncAttempts + 1),
-              lastError: Value(errorMessage),
-            ),
-          );
+      final updated = await customUpdate(
+        'UPDATE offline_watch_progress SET sync_attempts = sync_attempts + 1, last_error = ? '
+        'WHERE id = ? AND updated_at = ?',
+        variables: [Variable<String>(errorMessage), Variable<int>(id), Variable<int>(revision)],
+        updates: {offlineWatchProgress},
+      );
       return updated != 0;
     });
   }
 
-  /// Get count of pending sync items
   Future<int> getPendingSyncCount({String? profileId, int? maxSyncAttempts}) async {
     final query = selectOnly(offlineWatchProgress)..addColumns([offlineWatchProgress.id.count()]);
     if (profileId != null) {

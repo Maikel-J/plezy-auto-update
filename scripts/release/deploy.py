@@ -18,7 +18,7 @@ One command releases to every channel:
 Phases (in order):
     preflight   validate tools, credentials, git state
     changelog   generate per-channel release notes via the claude CLI
-    bump        bump pubspec version, commit, push (replaces release.yml)
+    bump        bump pubspec version, commit, push
     farm_start  trigger .github/workflows/build.yml for a tagged draft release
     play        build AAB, upload symbols, publish to Google Play production
     amazon      build APK, upload via the App Submission API, commit the edit
@@ -84,6 +84,7 @@ import plistlib
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -141,10 +142,12 @@ RELEASE_ASSET_NAMES = frozenset(
         "plezy-android-x86_64.tar.gz",
         "plezy-ios.ipa",
         "plezy-linux-arm64.deb",
+        "plezy-linux-arm64.flatpak",
         "plezy-linux-arm64.pkg.tar.zst",
         "plezy-linux-arm64.rpm",
         "plezy-linux-arm64.tar.gz",
         "plezy-linux-x64.deb",
+        "plezy-linux-x64.flatpak",
         "plezy-linux-x64.pkg.tar.zst",
         "plezy-linux-x64.rpm",
         "plezy-linux-x64.tar.gz",
@@ -862,7 +865,17 @@ def phase_play(ctx: Context) -> None:
     credentials = service_account.Credentials.from_service_account_info(
         info, scopes=["https://www.googleapis.com/auth/androidpublisher"]
     )
-    publisher = gapi_build("androidpublisher", "v3", credentials=credentials, cache_discovery=False)
+    # build_http() takes its read timeout from the socket default, else 60 s, and
+    # Play processes a ~300 MB bundle for longer than that after the last chunk:
+    # the upload is accepted but the response read times out and the edit is lost.
+    previous_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(1800)
+    try:
+        publisher = gapi_build(
+            "androidpublisher", "v3", credentials=credentials, cache_discovery=False
+        )
+    finally:
+        socket.setdefaulttimeout(previous_timeout)
     edits = publisher.edits()
 
     edit_id = _execute_google_request(edits.insert(packageName=package, body={}))["id"]

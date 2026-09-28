@@ -197,7 +197,7 @@ void main() {
               expect(peer.latestState.phase, PlaybackPhase.paused);
               expect(peer.latestState.anchorPositionMs, 121000);
               fakePlayer.setCompleted(true);
-              expect(key.currentState!.debugInterceptEofForTesting(), isTrue);
+              expect(await key.currentState!.debugInterceptEofForTesting(), isTrue);
               for (var i = 0; i < 400 && !key.currentState!.debugPlaybackParkedForTesting; i++) {
                 await tester.pump(const Duration(milliseconds: 50));
                 await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 2)));
@@ -746,9 +746,6 @@ class _ReloadPlayer extends FakeSyncPlayer {
   String get playerType => 'mpv';
 
   @override
-  bool get attachesExternalSubtitlesAtOpen => true;
-
-  @override
   bool get needsDecoderRefreshAfterDisplaySwitch => false;
 
   @override
@@ -779,6 +776,7 @@ class _ReloadPlayer extends FakeSyncPlayer {
     setPosition(media.start ?? Duration.zero);
     setCompleted(false);
     emitPlaying(play);
+    emitFileStarted();
     emitPlaybackRestart();
   }
 

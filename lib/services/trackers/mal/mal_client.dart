@@ -165,6 +165,7 @@ class MalClient implements DisposableTrackerClient {
       rewatching: list is Map && flexibleBool(list['is_rewatching']),
       completed: list is Map && list['status'] == 'completed',
       rewatchCount: list is Map ? (flexibleInt(list['num_times_rewatched']) ?? 0) : 0,
+      progress: list is Map ? (flexibleInt(list['num_watched_episodes']) ?? 0) : 0,
     );
   }
 
@@ -202,13 +203,7 @@ class MalClient implements DisposableTrackerClient {
     var res = await _send(method, path, body: body, formBody: formBody);
 
     if (res.statusCode == 401) {
-      try {
-        await _refresh();
-      } catch (_) {
-        // Reported as an API 401, not as the TrackerAuthException Trakt
-        // propagates from the same path.
-        throw const TrackerApiException(service: TrackerService.mal, statusCode: 401);
-      }
+      await _refresh();
       res = await _send(method, path, body: body, formBody: formBody);
     }
 

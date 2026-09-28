@@ -332,6 +332,7 @@ class _ObservedPlayer extends FakeSyncPlayer {
       audioDevices: base.audioDevices,
       bufferRanges: base.bufferRanges,
       playbackRestart: base.playbackRestart,
+      fileStarted: base.fileStarted,
       backendSwitched: base.backendSwitched,
     );
   }
@@ -341,9 +342,6 @@ class _ObservedPlayer extends FakeSyncPlayer {
     setPosition(Duration.zero);
     emitPlaying(false);
   }
-
-  @override
-  bool get attachesExternalSubtitlesAtOpen => true;
 
   @override
   bool get needsDecoderRefreshAfterDisplaySwitch => false;
@@ -372,6 +370,7 @@ class _ObservedPlayer extends FakeSyncPlayer {
     setPosition(media.start ?? Duration.zero);
     emitCompleted(false);
     emitPlaying(play);
+    emitFileStarted();
     emitPlaybackRestart();
   }
 

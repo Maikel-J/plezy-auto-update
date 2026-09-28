@@ -228,6 +228,7 @@ class _SwitchPlayer extends FakeSyncPlayer {
       audioDevices: base.audioDevices,
       bufferRanges: base.bufferRanges,
       playbackRestart: base.playbackRestart,
+      fileStarted: base.fileStarted,
       backendSwitched: base.backendSwitched,
     );
   }
@@ -237,9 +238,6 @@ class _SwitchPlayer extends FakeSyncPlayer {
     setPosition(Duration.zero);
     emitPlaying(false);
   }
-
-  @override
-  bool get attachesExternalSubtitlesAtOpen => true;
 
   @override
   bool get needsDecoderRefreshAfterDisplaySwitch => false;
@@ -274,6 +272,7 @@ class _SwitchPlayer extends FakeSyncPlayer {
       return;
     }
     emitPlaying(play);
+    emitFileStarted();
     emitPlaybackRestart();
   }
 

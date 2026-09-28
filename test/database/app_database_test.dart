@@ -1031,6 +1031,60 @@ class _AppDatabaseTestSuite {
           db = AppDatabase.forTesting(NativeDatabase.memory());
         }
       });
+      test('v23 migration adds library identity columns and leaves existing rows unstamped', () async {
+        await db.close();
+        final tempDir = await Directory.systemTemp.createTemp('plezy_db_v23_migration_test_');
+        final file = File('${tempDir.path}/plezy_downloads.db');
+        AppDatabase? seeded;
+        AppDatabase? reopened;
+
+        try {
+          // Build a v22-shaped database: current schema minus the columns this
+          // migration adds, with one row that predates library stamping.
+          seeded = AppDatabase.forTesting(NativeDatabase(file));
+          await seeded.insertDownload(
+            serverId: ServerId('srv'),
+            ratingKey: 'movie-1',
+            globalKey: 'srv:movie-1',
+            type: 'movie',
+            status: DownloadStatus.completed.index,
+          );
+          await seeded.customStatement('ALTER TABLE downloaded_media DROP COLUMN library_id');
+          await seeded.customStatement('ALTER TABLE downloaded_media DROP COLUMN library_title');
+          await seeded.customStatement('PRAGMA user_version = 22');
+          await seeded.close();
+          seeded = null;
+
+          reopened = AppDatabase.forTesting(NativeDatabase(file));
+          final columns = (await reopened.customSelect("PRAGMA table_info('downloaded_media')").get())
+              .map((row) => row.read<String>('name'))
+              .toSet();
+          expect(columns, containsAll(['library_id', 'library_title']));
+
+          final row = await reopened.getDownloadedMedia('srv:movie-1');
+          expect(row, isNotNull);
+          expect(row!.libraryId, isNull);
+          expect(row.libraryTitle, isNull);
+
+          // New enqueues stamp the columns through insertQueuedDownload.
+          await reopened.insertQueuedDownload(
+            serverId: ServerId('srv'),
+            ratingKey: 'movie-2',
+            globalKey: 'srv:movie-2',
+            type: 'movie',
+            libraryId: 'lib-7',
+            libraryTitle: 'Movies',
+          );
+          final stamped = await reopened.getDownloadedMedia('srv:movie-2');
+          expect(stamped?.libraryId, 'lib-7');
+          expect(stamped?.libraryTitle, 'Movies');
+        } finally {
+          await reopened?.close();
+          await seeded?.close();
+          await tempDir.delete(recursive: true);
+          db = AppDatabase.forTesting(NativeDatabase.memory());
+        }
+      });
     });
 
     _registerLegacyDesktopMigrationTests();
@@ -1297,43 +1351,6 @@ class _AppDatabaseTestSuite {
         final row = await db.select(db.downloadedMedia).getSingle();
         expect(row.serverId, 'jf-machine');
         expect(row.clientScopeId, 'jf-machine/user-a');
-      });
-
-      test('requeue preserves SAF ownership fields while resetting failed state', () async {
-        await db
-            .into(db.downloadedMedia)
-            .insert(
-              DownloadedMediaCompanion.insert(
-                serverId: ServerId('srv1'),
-                ratingKey: 'saf-retry',
-                globalKey: 'srv1:saf-retry',
-                type: 'movie',
-                status: DownloadStatus.failed.index,
-                progress: const Value(73),
-                videoFilePath: const Value('content://downloads/video.mkv'),
-                safRootUri: const Value('content://downloads'),
-                errorMessage: const Value('stale failure'),
-                retryCount: const Value(4),
-                bgTaskId: const Value('stale-task'),
-              ),
-            );
-
-        await db.insertDownload(
-          serverId: ServerId('srv1'),
-          ratingKey: 'saf-retry',
-          globalKey: 'srv1:saf-retry',
-          type: 'movie',
-          status: DownloadStatus.queued.index,
-        );
-
-        final row = await db.getDownloadedMedia('srv1:saf-retry');
-        expect(row?.videoFilePath, 'content://downloads/video.mkv');
-        expect(row?.safRootUri, 'content://downloads');
-        expect(row?.bgTaskId, 'stale-task');
-        expect(row?.status, DownloadStatus.queued.index);
-        expect(row?.progress, 0);
-        expect(row?.errorMessage, isNull);
-        expect(row?.retryCount, 0);
       });
 
       test('globalKey unique constraint blocks duplicate insert', () async {

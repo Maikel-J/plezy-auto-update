@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../exceptions/media_server_exceptions.dart';
 import '../../media/media_item.dart';
 import '../../media/media_kind.dart';
 import '../../media/media_server_client.dart';
@@ -191,7 +192,24 @@ class TrackerCoordinator {
       _resolver = _newResolver(client, needsFribb: _anyTrackerNeedsFribb);
       _resolverClientKey = clientKey;
     }
-    final ctx = await _buildContext(metadata, _resolver!);
+    final TrackerContext? ctx;
+    try {
+      ctx = await _buildContext(metadata, _resolver!);
+    } catch (e, st) {
+      if (revision != _playbackRevision) return;
+      // Every backend throws here on auth/5xx/transport — only "no mapping"
+      // is an empty id set — so this is a server (or mapping download)
+      // failure, not an unmatched item, and nothing will scrobble: worth a
+      // warning, once per playback. A cancellation is the client being torn
+      // down mid-lookup and says nothing about the server.
+      if (e is MediaServerHttpException && e.isCancellation) {
+        appLogger.d('Trackers: id resolution cancelled for ${metadata.id}', error: e);
+      } else {
+        appLogger.w('Trackers: id resolution failed for ${metadata.id}, not scrobbling', error: e, stackTrace: st);
+      }
+      _reset();
+      return;
+    }
     if (revision != _playbackRevision) return;
     if (ctx == null) {
       appLogger.d('Trackers: no external IDs for ${metadata.id}');
@@ -326,9 +344,9 @@ class TrackerCoordinator {
     TrackerIdResolver resolver,
     _WriteScope scope,
   ) async {
-    // One context per series entry per tracker: a show maps to a single list
-    // entry, so all of its episodes collapse into one removal.
-    final entriesByTracker = <SeriesProgressTracker, Map<Object, TrackerContext>>{};
+    // One context per series entry: a show maps to a single list entry, so all
+    // of its episodes collapse into one reset.
+    final seriesEntries = <String, TrackerContext>{};
     var resolved = 0;
 
     for (final episode in episodes) {
@@ -344,50 +362,16 @@ class TrackerCoordinator {
 
       await _dispatch(_episodeHistoryTrackers, ctx, scope, watched: false);
 
-      for (final tracker in _seriesProgressTrackers) {
-        if (!_canWrite(tracker, ctx.libraryGlobalKey)) continue;
-        final entryId = tracker.seriesEntryId(ctx);
-        if (entryId == null) continue;
-        (entriesByTracker[tracker] ??= {})[entryId] = ctx;
-      }
+      final key = _seriesGroupKey(ctx);
+      if (key != null) seriesEntries.putIfAbsent(key, () => ctx);
     }
 
     appLogger.d('Trackers: manual container unwatched resolved $resolved/${episodes.length} episodes');
-    await _removeSeriesEntries(entriesByTracker, scope);
-  }
 
-  /// Dropping a whole series entry has no queued-retry form — the queue replays
-  /// [Tracker] writes, and this is not one — so a failure here is logged and
-  /// dropped. A success invalidates any queued progress claim for that entry,
-  /// which would otherwise replay and resurrect the list entry the user just
-  /// cleared.
-  Future<void> _removeSeriesEntries(
-    Map<SeriesProgressTracker, Map<Object, TrackerContext>> entriesByTracker,
-    _WriteScope scope,
-  ) async {
-    await Future.wait([
-      for (final entry in entriesByTracker.entries)
-        ...entry.value.values.map((ctx) => _removeSeriesEntry(entry.key, ctx, scope)),
-    ]);
-    for (final entry in entriesByTracker.entries) {
-      appLogger.d('Trackers: manual container unwatched removed ${entry.value.length} ${entry.key.name} entries');
+    for (final ctx in seriesEntries.values) {
+      await _dispatch(_seriesProgressTrackers, ctx, scope, watched: false);
     }
-  }
-
-  Future<void> _removeSeriesEntry(SeriesProgressTracker tracker, TrackerContext ctx, _WriteScope scope) async {
-    final key = _coalesceKeyFor(tracker, ctx);
-    int? marker;
-    try {
-      await _sequencedByKey(scope, key, () async {
-        await tracker.removeFromList(ctx);
-        if (key != null) marker = _writeQueue.noteDirectWrite(scope.userUuid, key);
-      });
-    } catch (e) {
-      appLogger.d('${tracker.name}: removeFromList failed', error: e);
-      return;
-    }
-    // The entry is gone; a queued progress claim for it would resurrect it.
-    await _settleQueueAfterWrite(key, marker, scope);
+    appLogger.d('Trackers: manual container unwatched reset ${seriesEntries.length} series entries');
   }
 
   /// Group key over the series entries a container's episodes would touch, so
@@ -420,8 +404,8 @@ class TrackerCoordinator {
       return;
     }
     // A single episode cannot be unwatched on a series-progress tracker: its
-    // entry counts episodes, so only whole-entry removal (the container path)
-    // means anything there.
+    // entry counts episodes, so only a whole-container reset (the container
+    // path) means anything there.
     await _dispatch(ctx.isMovie ? _trackers : _episodeHistoryTrackers, ctx, scope, watched: false);
   }
 

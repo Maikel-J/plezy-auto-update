@@ -1,7 +1,7 @@
 name: plezy
 description: "A beautiful Plex and Jellyfin client for Flutter"
 publish_to: "none"
-version: 2.20.0+150
+version: 2.21.0+151
 
 environment:
   # Dart floor stays 3.12: freezed 3.x emits `final` constructor parameters,
@@ -64,7 +64,7 @@ dependencies:
     git:
       url: https://github.com/edde746/background_downloader
       ref: 1bcc9978e9b5e503dd08176cc423cfabee703761
-  sentry_flutter: ^9.25.0
+  sentry_flutter: ^9.30.0
   auto_updater:
     git:
       url: https://github.com/edde746/auto_updater
