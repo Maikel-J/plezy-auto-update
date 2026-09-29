@@ -595,6 +595,77 @@ void main() {
     expect(result.subtitleSidecars.map((sidecar) => sidecar.preload), everyElement(isTrue));
   });
 
+  test('external players get every sidecar file with the selected one enabled (#2464)', () async {
+    final client = makeClient((request) async {
+      if (request.url.path == '/library/metadata/42') {
+        return http.Response(
+          jsonEncode({
+            'MediaContainer': {
+              'Metadata': [
+                {
+                  'ratingKey': '42',
+                  'type': 'movie',
+                  'title': 'Movie',
+                  'Media': [
+                    {
+                      'id': 7,
+                      'container': 'mkv',
+                      'Part': [
+                        {
+                          'id': 99,
+                          'key': '/library/parts/99/file.mkv',
+                          'Stream': [
+                            {'streamType': 1, 'id': 300, 'codec': 'h264'},
+                            {'streamType': 3, 'id': 400, 'index': 2, 'codec': 'ass', 'languageCode': 'jpn'},
+                            {
+                              'streamType': 3,
+                              'id': 401,
+                              'codec': 'srt',
+                              'languageCode': 'deu',
+                              'key': '/library/streams/401',
+                              'external': true,
+                            },
+                            {
+                              'streamType': 3,
+                              'id': 402,
+                              'codec': 'ass',
+                              'languageCode': 'eng',
+                              'key': '/library/streams/402',
+                              'external': true,
+                              'selected': true,
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('unexpected request', 500);
+    });
+    addTearDown(client.close);
+
+    final target = await client.resolveExternalPlayback(
+      testMediaItem(id: '42', backend: MediaBackend.plex, kind: MediaKind.movie, serverId: 'server-id'),
+    );
+
+    expect(target!.url, contains('/library/parts/99/file.mkv'));
+    final uris = [for (final subtitle in target.subtitles) Uri.parse(subtitle.uri!)];
+    expect(uris.map((uri) => uri.path), ['/library/streams/401.srt', '/library/streams/402.ass']);
+    expect(
+      uris.map((uri) => uri.queryParameters['X-Plex-Token']),
+      everyElement(isNotEmpty),
+      reason: 'an external player cannot send the auth header',
+    );
+    expect(target.subtitles.map((subtitle) => subtitle.isDefault), [false, true]);
+  });
+
   test('playback uses metadata availability flags without probing part URLs', () async {
     final requests = <http.Request>[];
     final client = makeClient((request) async {
@@ -1111,7 +1182,7 @@ void main() {
       profile,
       contains(
         'add-transcode-target(type=videoProfile&context=streaming'
-        '&protocol=hls&container=mp4&videoCodec=h264%2Chevc'
+        '&protocol=hls&container=mp4&videoCodec=av1%2Chevc%2Ch264'
         '&audioCodec=aac%2Cac3%2Ceac3%2Cmp3)',
       ),
     );
@@ -1154,12 +1225,14 @@ void main() {
     expect(original.containsKey('videoQuality'), isFalse);
   });
 
-  Future<({PlaybackInitializationResult result, List<String> paths})> initializeCappedPlayback({
+  Future<({PlaybackInitializationResult result, List<String> paths, List<Uri> decisions})> initializeCappedPlayback({
     required TranscodeQualityPreset preset,
     required int bitrateKbps,
     required int height,
+    String? videoCodec,
   }) async {
     final paths = <String>[];
+    final decisions = <Uri>[];
     final client = makeClient((request) async {
       paths.add(request.url.path);
       if (request.url.path == '/library/metadata/42') {
@@ -1175,6 +1248,7 @@ void main() {
                       'container': 'mkv',
                       'bitrate': bitrateKbps,
                       'height': height,
+                      'videoCodec': ?videoCodec,
                       'Part': [
                         {'id': 99, 'key': '/library/parts/99/file.mkv'},
                       ],
@@ -1189,6 +1263,7 @@ void main() {
         );
       }
       if (request.url.path == '/video/:/transcode/universal/decision') {
+        decisions.add(request.url);
         return http.Response(
           jsonEncode({
             'MediaContainer': {
@@ -1218,7 +1293,7 @@ void main() {
           transcodeSessionId: 'transcode-id',
         ),
       );
-      return (result: result, paths: paths);
+      return (result: result, paths: paths, decisions: decisions);
     } finally {
       client.close();
     }
@@ -1271,6 +1346,61 @@ void main() {
     expect(run.paths, contains('/video/:/transcode/universal/decision'));
     expect(run.result.isTranscoding, isTrue);
     expect(run.result.playMethod, 'Transcode');
+  });
+
+  group('a codec refused in settings (#2443)', () {
+    setUp(() async {
+      resetSharedPreferencesForTest();
+      SettingsService.resetForTesting();
+      await SettingsService.getInstance();
+      await SettingsService.instance.write(SettingsService.refusedVideoCodecs, ['hevc']);
+    });
+
+    test('is transcoded at Original quality instead of played from the file', () async {
+      final run = await initializeCappedPlayback(
+        preset: TranscodeQualityPreset.original,
+        bitrateKbps: 3029,
+        height: 1080,
+        videoCodec: 'hevc',
+      );
+
+      expect(run.result.playMethod, 'Transcode');
+      expect(run.result.isTranscoding, isTrue);
+      final decision = run.decisions.single.queryParameters;
+      // PMS direct-plays an HEVC source under `directPlay=1` whatever the
+      // target lists, so the refusal only holds with direct play off.
+      expect(decision['directPlay'], '0');
+      expect(decision['directStream'], '1');
+      expect(decision.containsKey('videoResolution'), isFalse);
+      final profile = decision['X-Plex-Client-Profile-Extra']!;
+      expect(profile, contains('container=mp4&videoCodec=av1%2Ch264&'));
+      expect(profile, isNot(contains('video.bitrate')));
+    });
+
+    test('is transcoded even under a preset that covers the source', () async {
+      final run = await initializeCappedPlayback(
+        preset: TranscodeQualityPreset.p1080_10mbps,
+        bitrateKbps: 6206,
+        height: 1080,
+        videoCodec: 'h265',
+      );
+
+      expect(run.result.playMethod, 'Transcode');
+      expect(run.decisions.single.queryParameters['X-Plex-Client-Profile-Extra'], isNot(contains('hevc')));
+    });
+
+    test('leaves every other codec on direct play', () async {
+      final run = await initializeCappedPlayback(
+        preset: TranscodeQualityPreset.original,
+        bitrateKbps: 12514,
+        height: 1080,
+        videoCodec: 'h264',
+      );
+
+      expect(run.decisions, isEmpty);
+      expect(run.result.playMethod, 'DirectPlay');
+      expect(run.result.videoUrl, contains('/library/parts/99/file.mkv'));
+    });
   });
 
   test('the TS fallback profile offers only H.264, never HEVC-in-TS', () {
@@ -1340,7 +1470,7 @@ void main() {
     expect(run.result.outcome, TranscodeDecisionOutcome.transcodeOk);
     expect(run.decisions, hasLength(1));
     final profile = Uri.parse(run.result.startPath!).queryParameters['X-Plex-Client-Profile-Extra']!;
-    expect(profile, contains('container=mp4&videoCodec=h264%2Chevc'));
+    expect(profile, contains('container=mp4&videoCodec=av1%2Chevc%2Ch264'));
   });
 
   test('a decision that ignores the fMP4 container is retried once with the TS/h264 profile', () async {
@@ -2000,7 +2130,7 @@ void main() {
       addTearDown(client.close);
       final item = testMediaItem(id: '42', backend: MediaBackend.plex, kind: MediaKind.movie, serverId: 'server-id');
 
-      await expectLater(client.resolveExternalPlaybackUrl(item), throwsA(isA<MediaServerHttpException>()));
+      await expectLater(client.resolveExternalPlayback(item), throwsA(isA<MediaServerHttpException>()));
       await expectLater(client.resolveDownload(item), throwsA(isA<MediaServerHttpException>()));
     });
   });

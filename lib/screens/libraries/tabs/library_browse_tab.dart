@@ -39,6 +39,7 @@ import '../../../widgets/loading_indicator_box.dart';
 import '../../../widgets/media_card_sliver_layout.dart';
 import '../../../widgets/media_grid_delegate.dart';
 import '../../../widgets/media_card_list_layout.dart';
+import '../../../widgets/nested_tab_scrollbar.dart';
 import '../../../widgets/bottom_sheet_page_scaffold.dart';
 import '../../../widgets/overlay_sheet.dart';
 import '../../../mixins/library_tab_focus_mixin.dart';
@@ -490,6 +491,7 @@ class _LibraryBrowseTabState extends BaseLibraryTabState<MediaItem, LibraryBrows
         }
       }
 
+      revealFirstItem();
       request();
       WidgetsBinding.instance.addPostFrameCallback((_) => request());
       return;
@@ -506,6 +508,7 @@ class _LibraryBrowseTabState extends BaseLibraryTabState<MediaItem, LibraryBrows
         }
       }
 
+      revealFirstItem();
       request();
       WidgetsBinding.instance.addPostFrameCallback((_) => request());
     }
@@ -854,6 +857,9 @@ class _LibraryBrowseTabState extends BaseLibraryTabState<MediaItem, LibraryBrows
     final contentEpoch = epoch ?? snapshotLibraryContentEpoch();
     setState(() {
       isLoading = true;
+      // A failed earlier load must not outlive this one: the state slivers
+      // rank the error above the empty state.
+      errorMessage = null;
       items = [];
       resetPaginationState();
       // Increment content version when loading fresh content
@@ -1768,6 +1774,13 @@ class _LibraryBrowseTabState extends BaseLibraryTabState<MediaItem, LibraryBrows
       ),
     );
 
+    // Inset the scrollbar beside the alpha jump bar rather than beneath it.
+    // The wrapper stays mounted when the bar toggles so the scroll view, and
+    // its position, survive.
+    scrollView = NestedTabScrollbar(
+      rightInset: _shouldShowAlphaJumpBar && !_isPhone(context) ? _alphaJumpBarWidth : 0,
+      child: scrollView,
+    );
     scrollView = SafeArea(top: false, bottom: false, child: scrollView);
 
     // Folders mode previously had its own RefreshIndicator inside FolderTreeView;

@@ -61,20 +61,18 @@ extension _PlexVideoControlsVisibilityMethods on _PlexVideoControlsState {
     });
   }
 
-  /// Controls hide delay: 10s under D-pad/keyboard navigation (the viewer reads
-  /// each label between presses, and a remote has no tap to bring the OSD
-  /// back), 5s on touch mobile, 3s on desktop with a mouse. Maestro builds
-  /// extend the delay because accessibility-tree queries can take longer than
-  /// the production timeout on physical devices.
+  /// Controls hide delay: 5s on touch mobile and under D-pad/keyboard
+  /// navigation, 3s on desktop with a mouse. Every D-pad press restarts the
+  /// timer, so traversing the bar never races it; a paused D-pad viewer keeps
+  /// the chrome until they dismiss it (see [PlayerChromeController.configure]).
+  /// Maestro builds extend the delay because accessibility-tree queries can
+  /// take longer than the production timeout on physical devices.
   Duration get _hideDelay {
     if (const bool.fromEnvironment('PLEZY_MAESTRO_E2E')) {
       return const Duration(seconds: 30);
     }
-    if (playerDirectionalNavigationEnabled()) {
-      return const Duration(seconds: 10);
-    }
     final isMobile = (Platform.isIOS || Platform.isAndroid) && !PlatformDetector.isTV();
-    if (isMobile) {
+    if (isMobile || playerDirectionalNavigationEnabled()) {
       return const Duration(seconds: 5);
     }
     return const Duration(seconds: 3);
@@ -107,6 +105,16 @@ extension _PlexVideoControlsVisibilityMethods on _PlexVideoControlsState {
   void _showControlsFromPointerActivity() {
     widget.chromeController.recordPointerActivity();
   }
+
+  /// Holds the chrome while any pointer is pressed on the controls, so a held
+  /// slider, scrub or button can't fade out and unmount under the pointer.
+  Widget _holdChromeWhilePressed({required Widget child}) => Listener(
+    behavior: HitTestBehavior.translucent,
+    onPointerDown: (event) => widget.chromeController.recordPointerDown(event.pointer),
+    onPointerUp: (event) => widget.chromeController.recordPointerUp(event.pointer),
+    onPointerCancel: (event) => widget.chromeController.recordPointerUp(event.pointer),
+    child: child,
+  );
 
   void _toggleControls() {
     widget.chromeController.toggle();

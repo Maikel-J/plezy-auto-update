@@ -179,9 +179,9 @@ class MpvPlayerCore private constructor(
      * renderer on the Android device zoo, and with film grain applied by the
      * decoder nothing else on this path needs libplacebo. Dolby Vision RPU
      * reshaping (#1902) is the one exception - it needs gpu-next, and the
-     * [GpuVoPolicy.REASON_DV_RESHAPE] observer moves the session there when a
-     * DV profile that needs reshaping appears. gpu-next under *hardware*
-     * decode is broken on Tegra (samplerExternalOES double declaration
+     * on_preloaded hook moves the session there for each file whose DV
+     * profile needs reshaping ([applySoftwareDvReshapeOutput]). gpu-next
+     * under *hardware* decode is broken on Tegra (samplerExternalOES double declaration
      * rejected by the GLES linker, blue screen on the Shield, #2010);
      * vo=mediacodec sidesteps that entire class by never touching GLES.
      */
@@ -287,6 +287,9 @@ class MpvPlayerCore private constructor(
    * must follow its ownership, not a request still waiting for an OSD surface. */
   @Volatile private var appliedGpuVoTarget: String? = null
 
+  /** The `vo` a software session last wrote; see [applySoftwareDvReshapeOutput]. */
+  @Volatile private var softwareVideoOutput: String = initialVideoOutput(hardwareDecoding = false)
+
   /** Per-file reasons holding hwdec at `no` (DV P5 reshaping or unsupported
    * hardware decoding); the session's own hwdec value is parked in
    * [parkedHwdec] while any is active. Written under itself. */
@@ -345,6 +348,16 @@ class MpvPlayerCore private constructor(
   @Volatile private var displayHdrSupported: Boolean = false
 
   @Volatile private var displayDvSupported: Boolean = false
+
+  /** `hdr-sdr-conversion` the app last set; see [GpuVoPolicy.needsHdrToneMapping]. */
+  @Volatile private var hdrSdrConversionMode: String = "auto"
+
+  /** Latest `video-params/gamma`, kept so a mode change re-decides the live file. */
+  @Volatile private var videoGamma: String? = null
+
+  /** Serializes the HDR-to-SDR decision so a mode change and a gamma change
+   * cannot land their answers out of order. */
+  private val hdrToneMapLock = Any()
 
   @Volatile private var videoDisplayWidth: Int = 0
 
@@ -855,6 +868,8 @@ class MpvPlayerCore private constructor(
       hdrDisplayActive = false
       displayHdrSupported = false
       displayDvSupported = false
+      hdrSdrConversionMode = "auto"
+      videoGamma = null
       frameRateVote.onMediaFrameRate(0f)
       frameRateVote.onPlaybackSpeed(1f)
       publishedDisplayFpsOverride = null
@@ -1053,6 +1068,16 @@ class MpvPlayerCore private constructor(
                 }
               }
             }
+          } else if (!audioOnly) {
+            // The plane arbiter that moves a DV P5 file to gpu-next never
+            // runs in a software session, and its vo=gpu composites no RPU.
+            p.hookHandler = { name ->
+              if (name == "on_preloaded" && !disposing) {
+                writeOperations.run("preloaded hook") {
+                  applySoftwareDvReshapeOutput(pendingVideoTrack(p))
+                }
+              }
+            }
           }
 
           if (!audioOnly) {
@@ -1078,7 +1103,6 @@ class MpvPlayerCore private constructor(
           // Start collecting events/properties/logs
           collectEvents(p)
           collectPropertyChanges(p)
-          collectLogMessages(p)
           if (!audioOnly) collectMediaFrameRate(p)
           if (usesMediaCodecVo) {
             collectVideoDimensions(p)
@@ -1171,6 +1195,7 @@ class MpvPlayerCore private constructor(
               lifecycleData(event.sourceId, event.positionSeconds)
             )
           }
+          is MpvEvent.LogMessage -> onMpvLog(event)
         }
       }
     }
@@ -1261,25 +1286,21 @@ class MpvPlayerCore private constructor(
     }
   }
 
-  private fun collectLogMessages(p: MpvPlayer) {
-    scope.launch(start = CoroutineStart.UNDISPATCHED) {
-      p.logFlow.collect { msg ->
-        endFileDiagnostics.onLogMessage(msg)
-        // A chain-init failure is the one runtime signal that frames cannot
-        // reach the video plane at all (exotic pixel formats, gralloc
-        // refusal). mpv is pinned in the fork, so the log line is a stable
-        // contract.
-        if (usesMediaCodecVo &&
-          activeGpuVoTarget == null &&
-          msg.prefix.startsWith("cplayer") &&
-          msg.text.contains("Could not initialize video chain")
-        ) {
-          Log.w(TAG, "Video chain init failed under vo=mediacodec; leaving the video plane")
-          setGpuVoRequirement(GpuVoPolicy.REASON_CHAIN_FAILURE, true)
-        }
-        emitLog(msg.level.name.lowercase(), msg.prefix, msg.text)
-      }
+  private fun onMpvLog(msg: MpvEvent.LogMessage) {
+    endFileDiagnostics.onLogMessage(msg)
+    // A chain-init failure is the one runtime signal that frames cannot
+    // reach the video plane at all (exotic pixel formats, gralloc
+    // refusal). mpv is pinned in the fork, so the log line is a stable
+    // contract.
+    if (usesMediaCodecVo &&
+      activeGpuVoTarget == null &&
+      msg.prefix.startsWith("cplayer") &&
+      msg.text.contains("Could not initialize video chain")
+    ) {
+      Log.w(TAG, "Video chain init failed under vo=mediacodec; leaving the video plane")
+      setGpuVoRequirement(GpuVoPolicy.REASON_CHAIN_FAILURE, true)
     }
+    emitLog(msg.level.name.lowercase(), msg.prefix, msg.text)
   }
 
   // Audio Focus
@@ -1552,6 +1573,26 @@ class MpvPlayerCore private constructor(
   }
 
   /**
+   * Software-session counterpart of [applyDvReshapePolicy]: nothing here
+   * decodes P5 natively, so a P5 file under `auto` renders on gpu-next,
+   * which reshapes the RPU (#1902), and any other file goes back to
+   * [initialVideoOutput]. Written from on_preloaded, where this file has no
+   * decoder or video chain yet, so the vo write rebuilds nothing live.
+   */
+  private suspend fun applySoftwareDvReshapeOutput(track: org.json.JSONObject?) {
+    val profile = track?.takeIf { it.has("dolby-vision-profile") }?.getLong("dolby-vision-profile")
+    pendingDvProfile = profile
+    val needs = GpuVoPolicy.needsDvReshaping(profile, currentDvConversionMode, canPlayP5Natively = false)
+    val output = if (needs) "gpu-next" else initialVideoOutput(hardwareDecoding = false)
+    if (output == softwareVideoOutput) return
+    val decision = "profile=$profile mode=$currentDvConversionMode path=software decode, vo=$output"
+    Log.i(TAG, "DV routing: $decision")
+    emitLog("info", "dv-route", decision)
+    writeProperty("vo", output)
+    softwareVideoOutput = output
+  }
+
+  /**
    * Route unsupported hardware decoding before decoder initialization:
    * H.264 High 10 without a hardware profile (#2065), and AV1 without a
    * hardware decoder (#2272). Keep the GL requirement for the file, including
@@ -1819,12 +1860,21 @@ class MpvPlayerCore private constructor(
   private fun collectHdrToneMapState(p: MpvPlayer) {
     scope.launch(start = CoroutineStart.UNDISPATCHED) {
       p.propertyFlow.filterIsInstance<PropertyChange.Str>().filter { it.name == "video-params/gamma" }.collect { change ->
-        val needsToneMap = GpuVoPolicy.needsHdrToneMapping(
-          gamma = change.value,
-          displaySupportsHdr = displayHdrSupported
-        )
-        setGpuVoRequirement(GpuVoPolicy.REASON_HDR_SDR, needsToneMap)
+        videoGamma = change.value
+        refreshHdrToneMapRequirement()
       }
+    }
+  }
+
+  private fun refreshHdrToneMapRequirement() {
+    synchronized(hdrToneMapLock) {
+      val needsToneMap = GpuVoPolicy.needsHdrToneMapping(
+        gamma = videoGamma,
+        displaySupportsHdr = displayHdrSupported,
+        conversionMode = hdrSdrConversionMode,
+        sdkInt = Build.VERSION.SDK_INT
+      )
+      setGpuVoRequirement(GpuVoPolicy.REASON_HDR_SDR, needsToneMap)
     }
   }
 
@@ -2464,6 +2514,24 @@ class MpvPlayerCore private constructor(
   }
 
   /**
+   * `hdr-sdr-conversion` is an app-level property: who converts HDR for a
+   * display without HDR output ([GpuVoPolicy.needsHdrToneMapping]). It
+   * re-decides the live file at once, so a change mid-file moves it between
+   * the plane and the GL vo like any other routing reason.
+   */
+  private fun applyHdrSdrConversion(value: String, onComplete: ((Result<Unit>) -> Unit)?) {
+    val mode = value.trim().lowercase()
+    if (mode !in GpuVoPolicy.HDR_SDR_CONVERSION_MODES) {
+      onComplete?.invoke(Result.failure(IllegalArgumentException("Invalid HDR-to-SDR conversion mode: $value")))
+      return
+    }
+    hdrSdrConversionMode = mode
+    emitLog("info", "video-route", "HDR-to-SDR conversion: $mode (displayHDR=$displayHdrSupported sdk=${Build.VERSION.SDK_INT})")
+    refreshHdrToneMapRequirement()
+    onComplete?.invoke(Result.success(Unit))
+  }
+
+  /**
    * `content-color-transfer` is an app-level property: Dart announces the
    * selected stream's transfer (server metadata) before playback so an HDR
    * session can get a BT.2020 PQ 10-bit GL surface instead of tone-mapped
@@ -2539,6 +2607,11 @@ class MpvPlayerCore private constructor(
 
     if (name == "dv-conversion-mode") {
       applyDvConversionMode(value, onComplete)
+      return
+    }
+
+    if (name == "hdr-sdr-conversion") {
+      applyHdrSdrConversion(value, onComplete)
       return
     }
 

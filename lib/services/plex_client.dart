@@ -18,6 +18,7 @@ import '../media/media_hub.dart';
 import '../media/media_item.dart';
 import '../media/media_kind.dart';
 import '../media/media_library.dart';
+import '../media/media_person.dart';
 import '../media/media_playlist.dart';
 import '../media/ids.dart';
 import '../media/media_server_client.dart';
@@ -49,6 +50,7 @@ import '../models/plex/play_queue_response.dart';
 import '../media/media_file_info.dart';
 import '../media/media_filter.dart';
 import '../media/media_source_info.dart';
+import '../media/media_version.dart';
 import '../models/plex/plex_subtitle_search_result.dart';
 import '../models/plex/plex_match_result.dart';
 import '../utils/codec_utils.dart';
@@ -61,6 +63,7 @@ import '../utils/device_identity.dart';
 import '../utils/failover_http_client.dart';
 import '../utils/app_logger.dart';
 import '../utils/media_server_retry.dart';
+import '../utils/future_extensions.dart';
 import '../utils/media_server_timeouts.dart';
 import '../utils/active_client_scope.dart';
 import '../utils/log_redaction_manager.dart';
@@ -79,6 +82,7 @@ import 'plex_playback_mapper.dart';
 import 'playback_initialization_types.dart';
 import 'subtitle_preference.dart';
 import 'track_selection_service.dart';
+import 'video_decode_capabilities.dart';
 
 part 'plex_client/parts/live_tv.dart';
 part 'plex_client/parts/playlists.dart';
@@ -90,19 +94,25 @@ const _plexVideoTranscodeBaseEndpoint = '/video/:/transcode/universal';
 const _plexVideoHlsStartEndpoint = '$_plexVideoTranscodeBaseEndpoint/start.m3u8';
 const _plexVideoHlsProtocol = 'hls';
 
-/// VOD transcode target: HLS with fragmented-MP4 segments.
+/// VOD transcode target: HLS with fragmented-MP4 segments, offering
+/// [VideoDecodeCapabilities.transcodeVideoCodecs] in their ranked order — the
+/// same list the MediaBrowser device profile sends.
 ///
-/// Every non-Original VOD request pins `directStream=0`, so this codec list is
-/// a menu of *encode* outputs, never copy targets. HEVC must not be offered in
-/// an mpegts target: a Plex Pass server with HEVC encoding enabled obliges,
-/// and its hardware HEVC encode → TS segmenter path emits parameter sets mpv
-/// rejects ("PPS changed between slices", issue #1859). Apple's HLS spec
-/// likewise requires fMP4 for HEVC. fMP4 decisions and segment output were
-/// verified against PMS 1.22 through 1.43; servers older than 1.22 fail the
-/// decision request itself regardless of container, so no version gate.
-const _plexHlsVodVideoTranscodeTarget =
+/// Every non-Original VOD request pins `directStream=0`, and an Original one
+/// transcodes only when the source codec was refused and is therefore absent
+/// here, so this codec list is a menu of *encode* outputs, never copy
+/// targets. HEVC must not be offered in an mpegts target: a Plex Pass server
+/// with HEVC encoding enabled obliges, and its hardware HEVC encode → TS
+/// segmenter path emits parameter sets mpv rejects ("PPS changed between
+/// slices", issue #1859). Apple's HLS spec likewise requires fMP4 for HEVC.
+/// fMP4 decisions and segment output were verified against PMS 1.22 through
+/// 1.43; servers older than 1.22 fail the decision request itself regardless
+/// of container, so no version gate. PMS 1.43 has no AV1 encoder and answers
+/// an AV1-led list with the same encode it picked before AV1 was offered.
+String _plexHlsVodVideoTranscodeTarget() =>
     'add-transcode-target(type=videoProfile&context=streaming'
-    '&protocol=hls&container=mp4&videoCodec=h264%2Chevc'
+    '&protocol=hls&container=mp4'
+    '&videoCodec=${VideoDecodeCapabilities.transcodeVideoCodecs.map((codec) => codec.id).join('%2C')}'
     '&audioCodec=aac%2Cac3%2Ceac3%2Cmp3)';
 
 /// Fallback VOD target for a server whose decision does not honour the fMP4
@@ -117,15 +127,18 @@ const _plexHlsVodTsVideoTranscodeTarget =
 /// Live TV target for Original quality: MPEG-TS with the broadcast codecs.
 /// Those sessions are copy-dominant (TS→TS remux — hevc/mpeg2video here are
 /// copy targets, and HEVC *copy* into TS is verified clean), so this
-/// deliberately does not follow the VOD target to fMP4. Residual risk
-/// accepted: a Plex Pass server electing to HEVC-*encode* an Original live
-/// channel would hit the same TS bug. A capped live preset also asks for
-/// `directStream=1` but carries a bitrate ceiling the server may have to
-/// encode down to, so it uses [_plexHlsVodTsVideoTranscodeTarget] instead,
-/// where HEVC is not on the encode menu.
-const _plexHlsLiveVideoTranscodeTarget =
+/// deliberately does not follow the VOD target to fMP4, and keeps H.264 ahead
+/// of HEVC rather than the ranked order. Residual risk accepted: a Plex Pass
+/// server electing to HEVC-*encode* an Original live channel would hit the
+/// same TS bug. A capped live preset also asks for `directStream=1` but
+/// carries a bitrate ceiling the server may have to encode down to, so it
+/// uses [_plexHlsVodTsVideoTranscodeTarget] instead, where HEVC is not on the
+/// encode menu. HEVC drops out when the device does not accept it, so a
+/// channel broadcast in HEVC is then encoded to H.264.
+String _plexHlsLiveVideoTranscodeTarget() =>
     'add-transcode-target(type=videoProfile&context=streaming'
-    '&protocol=hls&container=mpegts&videoCodec=h264%2Chevc%2Cmpeg2video'
+    '&protocol=hls&container=mpegts'
+    '&videoCodec=h264${VideoDecodeCapabilities.accepts(RankedVideoCodec.hevc) ? '%2Chevc' : ''}%2Cmpeg2video'
     '&audioCodec=aac%2Cac3%2Ceac3%2Cmp3)';
 
 const _plexHlsSubtitleTranscodeTarget =
@@ -395,6 +408,13 @@ class PlexClient
   @override
   final ServerId serverId;
   PlexProfileScopeId profileScopeId;
+
+  /// [PlexAccountConnection.id] of the plex.tv account this client is bound
+  /// under, set by the owning [MultiServerManager]. Scopes the account-level
+  /// Live TV favorites store ([favoriteStoreKey]).
+  @override
+  String? plexAccountId;
+
   Object _authenticationSessionId = Object();
 
   @override
@@ -1021,20 +1041,21 @@ class PlexClient
   /// a revoked or expired token would still report healthy, only to 401 on
   /// the very next real call. Mirrors Jellyfin's `/Users/Me` choice.
   ///
-  /// Distinguishes 401/403 (token revoked / wrong user) as
-  /// [HealthStatus.authError] from generic transport failures so the
-  /// manager can route them to a re-auth banner instead of generic
-  /// "server offline" UI.
+  /// Distinguishes 401 (token revoked / wrong user) as [HealthStatus.authError]
+  /// and 403 (the server refuses this account) as [HealthStatus.accessDenied]
+  /// from generic transport failures, so the manager can route them to their
+  /// own banners instead of generic "server offline" UI.
   @override
   Future<HealthStatus> checkHealth() async {
     try {
       final response = await _getWithFailover('/', timeout: MediaServerTimeouts.plexProbe);
       return response.statusCode == 200 ? HealthStatus.online : HealthStatus.offline;
     } on MediaServerHttpException catch (e) {
-      if (e.statusCode == 401 || e.statusCode == 403) {
-        return HealthStatus.authError;
-      }
-      return HealthStatus.offline;
+      return switch (e.statusCode) {
+        401 => HealthStatus.authError,
+        403 => HealthStatus.accessDenied,
+        _ => HealthStatus.offline,
+      };
     } catch (_) {
       return HealthStatus.offline;
     }
@@ -1344,11 +1365,12 @@ class PlexClient
     Future<_LibraryContentResult> Function(int start, int size, AbortController? abort) fetchPage, {
     // ignore: unused_element_parameter
     AbortController? abort,
+    int pageSize = _fetchAllPageSize,
   }) {
     return drainPages<PlexMetadataDto>((start, size) async {
       final page = await fetchPage(start, size, abort);
       return LibraryPage(items: page.items, totalCount: page.totalSize, offset: start);
-    }, pageSize: _fetchAllPageSize);
+    }, pageSize: pageSize);
   }
 
   /// Walk every page of [path] and return a single synthesized response whose
@@ -2494,6 +2516,18 @@ class PlexClient
     filter: _videoOrCollectionHubItem,
   );
 
+  static final RegExp _collectionChildrenPath = RegExp(r'^/library/collections/[^/]+/children/?$');
+
+  /// Largest page a request for [hubKey] may ask for. A collection hub's key
+  /// is `/library/collections/{id}/children`, which PMS caps (#2468); other
+  /// hub keys take the regular fetch-all page size.
+  int _hubRequestPageSize(String hubKey) {
+    final path = Uri.tryParse(hubKey)?.path ?? hubKey;
+    return _collectionChildrenPath.hasMatch(path)
+        ? _PlexCollectionMethods._collectionChildrenMaxPageSize
+        : _fetchAllPageSize;
+  }
+
   /// Get full content from a hub using its hub key
   /// Returns the complete list of metadata items in the hub
   Future<List<PlexMetadataDto>> _getHubContent(String hubKey) async {
@@ -2502,15 +2536,14 @@ class PlexClient
       final items = await _fetchAllPages(
         (start, size, abort) =>
             _fetchPaginatedList(hubKey, start: start, size: size, abort: abort, librarySectionID: hubSectionID),
+        pageSize: _hubRequestPageSize(hubKey),
       );
-      return items.where(_isVideoMetadata).toList();
+      return items.where(_videoOrMusicHubItem).toList();
     } catch (e, st) {
       appLogger.e('Failed to get hub content', error: e, stackTrace: st);
       return [];
     }
   }
-
-  bool _isVideoMetadata(PlexMetadataDto item) => ContentTypes.videoTypes.contains(item.type?.toLowerCase());
 
   Future<_LibraryContentResult> _getHubContentPage(
     String hubKey, {
@@ -2520,7 +2553,12 @@ class PlexClient
   }) async {
     final filteredOffset = start ?? 0;
     final pageSize = size ?? _fetchAllPageSize;
-    final rawPageSize = pageSize > _fetchAllPageSize ? pageSize : _fetchAllPageSize;
+    final maxRawPageSize = _hubRequestPageSize(hubKey);
+    // The loop below fills the page across as many raw requests as it takes,
+    // so a capped hub just makes more, smaller requests.
+    final rawPageSize = maxRawPageSize < _fetchAllPageSize
+        ? maxRawPageSize
+        : (pageSize > _fetchAllPageSize ? pageSize : _fetchAllPageSize);
     final hubSectionID = _librarySectionIdFromString(hubKey);
     final pageItems = <PlexMetadataDto>[];
     var rawOffset = 0;
@@ -2541,7 +2579,9 @@ class PlexClient
       rawOffset += rawItems.length;
 
       for (final item in rawItems) {
-        if (!_isVideoMetadata(item)) continue;
+        // Same filter as the library-hub preview rows, so a music hub's
+        // "View All" lists what its row showed.
+        if (!_videoOrMusicHubItem(item)) continue;
         if (filteredSeen >= filteredOffset && pageItems.length < pageSize) {
           pageItems.add(item);
         }
@@ -2780,6 +2820,10 @@ class PlexClient
   /// seeks + quality/version/audio switches within one playback so the
   /// server-side transcode session is preserved.
   ///
+  /// [sourceCodecRefused] asks for a video encode even at Original quality:
+  /// the user refused the source's codec, so the file itself must not be
+  /// served (#2443).
+  ///
   /// Deliberately no `offset` request parameter: the start URL always
   /// describes the full title and the player seeks in-band by requesting the
   /// segment at the resume position (`Media(start:)`). Pre-warming the
@@ -2799,6 +2843,7 @@ class PlexClient
     int? audioStreamId,
     MediaSubtitleTrack? selectedSubtitleTrack,
     int? partId,
+    bool sourceCodecRefused = false,
   }) async {
     try {
       await selectSubtitleStreamForBurn(partId: partId, track: selectedSubtitleTrack);
@@ -2812,6 +2857,7 @@ class PlexClient
         audioStreamId: audioStreamId,
         selectedSubtitleTrack: selectedSubtitleTrack,
         useTsFallbackTarget: useTsFallbackTarget,
+        sourceCodecRefused: sourceCodecRefused,
       );
 
       final primary = await _runTranscodeDecision(
@@ -3009,11 +3055,12 @@ class PlexClient
     int? audioStreamId,
     MediaSubtitleTrack? selectedSubtitleTrack,
     bool useTsFallbackTarget = false,
+    bool sourceCodecRefused = false,
   }) {
     final isOriginal = preset.isOriginal;
     final selectedInternalSubtitle = _selectedInternalSubtitleForHls(selectedSubtitleTrack);
     final clientProfileExtra = _buildPlexHlsClientProfileExtra(
-      videoTranscodeTarget: useTsFallbackTarget ? _plexHlsVodTsVideoTranscodeTarget : _plexHlsVodVideoTranscodeTarget,
+      videoTranscodeTarget: useTsFallbackTarget ? _plexHlsVodTsVideoTranscodeTarget : _plexHlsVodVideoTranscodeTarget(),
       maxVideoBitrateKbps: !isOriginal ? preset.videoBitrateKbps : null,
     );
 
@@ -3030,7 +3077,14 @@ class PlexClient
       // image subtitles alike, while `directPlay=0` answers
       // `decision=transcode` on the video stream and `decision=burn` on the
       // subtitle.
-      'directPlay': selectedInternalSubtitle == null && isOriginal ? '1' : '0',
+      //
+      // A refused source codec contradicts it too: PMS 1.43 answers
+      // `directPlay=1` with "Direct play OK" for an HEVC or AV1 source even
+      // when the target omits that codec. With `directPlay=0` and
+      // `directStream=1` it copies the audio and encodes the video to the
+      // first target codec it can produce, at source resolution and 20 Mbps
+      // when no preset caps it.
+      'directPlay': selectedInternalSubtitle == null && isOriginal && !sourceCodecRefused ? '1' : '0',
       'directStream': isOriginal ? '1' : '0',
       'subtitleSize': '100',
       'audioBoost': '100',
@@ -3369,6 +3423,28 @@ class PlexClient
     }
   }
 
+  /// The item's current server-side metadata for the metadata editor. Unlike
+  /// [fetchItem] it never falls back to the API cache: the editor diffs tag
+  /// edits against these values, so a stale copy would re-add or drop tags.
+  Future<MediaItem?> fetchEditableItem(String id) async {
+    final MediaServerResponse response;
+    try {
+      response = await _getWithFailover('/library/metadata/$id');
+    } on MediaServerHttpException catch (error) {
+      if (error.statusCode == 404) return null;
+      rethrow;
+    }
+    final metadataJson = _getFirstMetadataJson(response);
+    if (metadataJson == null) return null;
+    final container = _getMediaContainer(response);
+    final metadata = _tagMetadataWithLibrary(
+      PlexMetadataDto.fromJsonWithImages(metadataJson),
+      librarySectionID: _librarySectionIdFromJson(metadataJson) ?? _librarySectionIdFromJson(container),
+      librarySectionTitle: _librarySectionTitleFromJson(metadataJson) ?? _librarySectionTitleFromJson(container),
+    );
+    return PlexMappers.mediaItem(metadata);
+  }
+
   @override
   Future<List<MediaItem>> fetchChildren(String parentId) async {
     final children = await _getChildren(parentId);
@@ -3649,7 +3725,10 @@ class PlexClient
       // (resolution/videoQuality) and is ignored for audio.
       final isTrack = options.metadata.kind == MediaKind.track;
       final audioPreset = options.audioQualityPreset ?? AudioQualityPreset.original;
-      final wantTranscode = isTrack ? !audioPreset.isOriginal : _presetNeedsTranscode(options.qualityPreset, data);
+      final sourceCodecRefused = !isTrack && _sourceCodecRefused(data);
+      final wantTranscode = isTrack
+          ? !audioPreset.isOriginal
+          : sourceCodecRefused || _presetNeedsTranscode(options.qualityPreset, data);
       if (wantTranscode && options.sessionIdentifier != null && options.transcodeSessionId != null) {
         if (isTrack) {
           final result = await buildMusicTranscodeStartPath(
@@ -3692,6 +3771,7 @@ class PlexClient
           audioStreamId: resolvedAudioId,
           selectedSubtitleTrack: requestedSubtitleTrack,
           partId: data.mediaInfo?.partId,
+          sourceCodecRefused: sourceCodecRefused,
         );
 
         // A transcode that cannot carry the requested caption is not the outcome we asked for. The
@@ -3724,7 +3804,7 @@ class PlexClient
 
       return PlaybackInitializationResult(
         availableVersions: data.availableVersions,
-        videoUrl: data.videoUrl,
+        videoUrl: _trackStreamUrl(data.videoUrl, options),
         mediaInfo: data.mediaInfo,
         subtitleSidecars: _buildExternalSubtitles(data.mediaInfo),
         isOffline: false,
@@ -3756,9 +3836,7 @@ class PlexClient
     if (preset.isOriginal) return false;
     final settings = SettingsService.instanceOrNull;
     if (settings != null && !settings.read(SettingsService.directPlayCoveredQuality)) return true;
-    final version = data.selectedMediaIndex < data.availableVersions.length
-        ? data.availableVersions[data.selectedMediaIndex]
-        : null;
+    final version = _selectedVersion(data);
     if (!preset.coversSource(bitrateKbps: version?.bitrate, heightPx: version?.resolutionHeight)) return true;
     appLogger.i(
       'Preset ${preset.name} covers the source (${version?.bitrate} kbps, '
@@ -3766,6 +3844,22 @@ class PlexClient
     );
     return false;
   }
+
+  /// Whether the user refused the selected version's video codec (#2443). A
+  /// refused codec is transcoded at every preset, Original included: this
+  /// device cannot decode it in real time, so playing the file is not an
+  /// option. Only an explicit refusal gates Plex direct play; a device the
+  /// hardware probe reports without a decoder still direct-plays, as it
+  /// always has on Plex.
+  bool _sourceCodecRefused(PlexVideoPlaybackData data) {
+    final codec = RankedVideoCodec.fromServerCodec(_selectedVersion(data)?.videoCodec);
+    if (codec == null || !VideoDecodeCapabilities.isRefusedByUser(codec)) return false;
+    appLogger.i('Source codec ${codec.id} is refused in settings; transcoding');
+    return true;
+  }
+
+  MediaVersion? _selectedVersion(PlexVideoPlaybackData data) =>
+      data.selectedMediaIndex < data.availableVersions.length ? data.availableVersions[data.selectedMediaIndex] : null;
 
   /// Direct-play result for a transcode decision that fell back (failed or
   /// said direct-play only), surfacing the reason so the UI can notify the
@@ -3783,7 +3877,7 @@ class PlexClient
     appLogger.w('Transcode decision fell back to direct play: ${fallbackReason.name}');
     return PlaybackInitializationResult(
       availableVersions: data.availableVersions,
-      videoUrl: data.videoUrl,
+      videoUrl: _trackStreamUrl(data.videoUrl, options),
       mediaInfo: data.mediaInfo,
       subtitleSidecars: _buildExternalSubtitles(data.mediaInfo),
       isOffline: false,
@@ -3794,6 +3888,18 @@ class PlexClient
       playSessionId: options.sessionIdentifier,
       selectedMediaIndex: data.selectedMediaIndex,
     );
+  }
+
+  /// [url] with the playback session in its query when it streams a track,
+  /// as the music transcode start URL already carries it. Track streams do
+  /// not get the `X-Plex-Session-Identifier` header (see
+  /// PlaybackSourceResolver): gapless playback opens the next track with the
+  /// playing track's headers, so the header would name the wrong session.
+  String? _trackStreamUrl(String? url, PlaybackInitializationOptions options) {
+    final sessionIdentifier = options.sessionIdentifier;
+    if (url == null || sessionIdentifier == null || options.metadata.kind != MediaKind.track) return url;
+    final separator = url.contains('?') ? '&' : '?';
+    return '$url${separator}X-Plex-Session-Identifier=${Uri.encodeQueryComponent(sessionIdentifier)}';
   }
 
   /// Pick the audio stream ID to send to the transcoder. Preference order:
@@ -4258,8 +4364,54 @@ class PlexClient
     return results.map((m) => PlexMappers.mediaItem(m)).toList();
   }
 
+  /// `/library/search?searchTypes=people` answers actors and directors only,
+  /// one row per library section the person has titles in, in Plex score
+  /// order; `limit` counts those rows. People share no request with
+  /// [searchItems] because a mixed `searchTypes` splits a single `limit`.
+  ///
+  /// Rows in [excludedLibraryIds] are dropped before de-duplicating by person
+  /// id, so someone hidden in one section still surfaces through another.
   @override
-  Future<List<MediaItem>> fetchContinueWatching({int? count = 20}) async {
+  Future<List<MediaPerson>> searchPeople(
+    String query, {
+    int limit = defaultPeopleSearchLimit,
+    AbortController? abort,
+    Set<String> excludedLibraryIds = const {},
+  }) async {
+    // Generous: one person can fill a row per section.
+    const rowLimit = 100;
+    final response = await _getWithFailover(
+      '/library/search',
+      queryParameters: {'query': query, 'limit': rowLimit, 'searchTypes': 'people', 'X-Plex-Container-Size': rowLimit},
+      abort: abort,
+    );
+    final searchResults = _getMediaContainer(response)?['SearchResult'];
+    if (searchResults is! List) return const [];
+
+    final people = <String, MediaPerson>{};
+    for (final result in searchResults) {
+      if (people.length >= limit) break;
+      try {
+        if (result is! Map) continue;
+        final directory = result['Directory'];
+        if (directory is! Map<String, dynamic>) continue;
+
+        final sectionId = _librarySectionIdFromJson(directory);
+        if (sectionId != null && excludedLibraryIds.contains(sectionId.toString())) continue;
+
+        final person = PlexMappers.personFromSearchResultJson(directory, serverId: serverId, serverName: serverName);
+        if (person != null) people.putIfAbsent(person.id, () => person);
+      } catch (e) {
+        appLogger.w('Failed to parse people search result', error: e);
+      }
+    }
+    return people.values.toList();
+  }
+
+  /// [excludedLibraryIds] is unused: every row carries its `librarySectionID`,
+  /// so the caller filters hidden libraries out of the mapped results.
+  @override
+  Future<List<MediaItem>> fetchContinueWatching({int? count = 20, Set<String> excludedLibraryIds = const {}}) async {
     final items = await _getContinueWatching(count: count);
     return items.map((m) => PlexMappers.mediaItem(m)).toList();
   }
@@ -4805,9 +4957,17 @@ class PlexClient
   // ── Downloads ────────────────────────────────────────────────────
 
   @override
-  Future<String?> resolveExternalPlaybackUrl(MediaItem item, {int mediaIndex = 0, String? mediaSourceId}) async {
+  Future<ExternalPlaybackTarget?> resolveExternalPlayback(
+    MediaItem item, {
+    int mediaIndex = 0,
+    String? mediaSourceId,
+  }) async {
     final playbackData = await getVideoPlaybackData(item.id, mediaIndex: mediaIndex);
-    return playbackData.hasValidVideoUrl ? playbackData.videoUrl : null;
+    if (!playbackData.hasValidVideoUrl) return null;
+    return ExternalPlaybackTarget(
+      url: playbackData.videoUrl!,
+      subtitles: [for (final sidecar in _buildExternalSubtitles(playbackData.mediaInfo)) sidecar.track],
+    );
   }
 
   @override

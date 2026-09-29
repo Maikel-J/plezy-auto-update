@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -9,8 +11,10 @@ import 'package:plezy/media/ids.dart';
 import 'package:plezy/media/live_tv_support.dart';
 import 'package:plezy/media/media_backend.dart';
 import 'package:plezy/media/media_kind.dart';
+import 'package:plezy/media/media_source_info.dart';
 import 'package:plezy/media/media_server_client.dart';
 import 'package:plezy/media/server_capabilities.dart';
+import 'package:plezy/models/livetv_capture_buffer.dart';
 import 'package:plezy/models/livetv_channel.dart';
 import 'package:plezy/models/transcode_quality_preset.dart';
 import 'package:plezy/mpv/mpv.dart';
@@ -157,6 +161,80 @@ void main() {
         expect(player.seekTargets, isEmpty);
 
         await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  });
+
+  testWidgets('a zap during the live start is refused instead of tuning beside it', (tester) async {
+    final channels = [
+      LiveTvChannel(key: 'ch-1', title: 'Channel 5', serverId: 'srv-1'),
+      LiveTvChannel(key: 'ch-2', title: 'Channel 6', serverId: 'srv-1'),
+    ];
+    final launchTune = Completer<LiveTvPlaybackSession?>();
+    final liveTv = _RecordingLiveTvSupport(firstStart: launchTune.future);
+    final player = _LiveMediaSessionPlayer();
+    final shell = _LiveShell(client: _LiveMediaServerClient(liveTv));
+
+    await withMockPlayerChannels(
+      methodChannelName: 'com.plezy/mpv_player',
+      eventChannelName: 'com.plezy/mpv_player/events',
+      methodHandler: (call) async => call.method == 'initialize' ? false : null,
+      testBody: () async {
+        final key = GlobalKey<VideoPlayerScreenState>();
+        await tester.pumpWidget(shell.screen(key: key, channel: channels.first, channels: channels));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        final state = key.currentState!..player = player;
+        final router = state.debugMediaControlRouterForTesting();
+
+        unawaited(state.debugStartPlaybackForTesting());
+        await tester.pump();
+        expect(liveTv.startedChannels, ['ch-1']);
+
+        // The OS media session (and the companion remote) reach the zap
+        // before the start has built any on-screen control. Tuning here would
+        // leave two sessions racing to be adopted, one of them never stopped.
+        router.route(const NextTrackEvent());
+        await tester.pump();
+        expect(liveTv.startedChannels, ['ch-1']);
+
+        launchTune.complete(null);
+        await tester.pump();
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  });
+
+  testWidgets('a replacement stream failing before the live start commits is recovered once it does', (tester) async {
+    final channel = LiveTvChannel(key: 'ch-1', title: 'Channel 5', serverId: 'srv-1');
+    final session = _RecoveringLiveSession();
+    final liveTv = _RecordingLiveTvSupport(firstStart: Future.value(session));
+    final player = _FailingOpenLivePlayer();
+    addTearDown(player.errors.close);
+    final shell = _LiveShell(client: _LiveMediaServerClient(liveTv));
+
+    await withMockPlayerChannels(
+      methodChannelName: 'com.plezy/mpv_player',
+      eventChannelName: 'com.plezy/mpv_player/events',
+      methodHandler: (call) async => call.method == 'initialize' ? false : null,
+      testBody: () async {
+        final key = GlobalKey<VideoPlayerScreenState>();
+        await tester.pumpWidget(shell.screen(key: key, channel: channel));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        final state = key.currentState!..player = player;
+        await state.debugWirePlayerStreamsForTesting();
+
+        // The stream the start opened fails while the start still holds the
+        // transition lock. The gate turns the recovery away then; it must run
+        // once the start has committed rather than be lost.
+        await state.debugStartPlaybackForTesting();
+
+        expect(player.opened, 1);
+        expect(session.recoveries, 1, reason: 'the failed replacement stream must take the fallback ladder');
+
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump(const Duration(seconds: 3));
       },
     );
   });
@@ -344,10 +422,78 @@ class _LiveMediaSessionPlayer implements Player {
   Future<void> seek(Duration position) async => seekTargets.add(position);
 
   @override
+  Future<bool> requestAudioFocus() async => true;
+
+  @override
+  Future<void> setProperty(String name, String value) async {}
+
+  @override
   Future<void> dispose({bool preserveDisplayMode = false}) async {}
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// A live player whose open reports a stream failure while the open is still
+/// in flight — the native error racing the transition that opened the stream.
+class _FailingOpenLivePlayer extends _LiveMediaSessionPlayer {
+  final StreamController<PlayerError> errors = StreamController<PlayerError>.broadcast(sync: true);
+  int opened = 0;
+
+  @override
+  PlayerStreams get streams => emptyPlayerStreams(error: errors.stream);
+
+  @override
+  Future<void> open(
+    Media media, {
+    bool play = true,
+    bool isLive = false,
+    List<SubtitleTrack>? externalSubtitles,
+    Duration? timelineDuration,
+  }) async {
+    opened++;
+    if (opened == 1) errors.add(const PlayerError('stream failed'));
+  }
+}
+
+class _RecoveringLiveSession implements LiveTvPlaybackSession {
+  int recoveries = 0;
+
+  @override
+  LiveTvBackgroundPolicy get backgroundPolicy => LiveTvBackgroundPolicy.retainSession;
+
+  @override
+  CaptureBuffer? get captureBuffer => null;
+
+  @override
+  bool get canTimeShift => false;
+
+  @override
+  LiveProgramInfo get program => LiveProgramInfo.none;
+
+  @override
+  List<MediaSubtitleTrack> get subtitleTracks => const [];
+
+  @override
+  Future<LiveTimelineUpdate?> reportTimeline({
+    required String state,
+    required int positionMs,
+    required int durationMs,
+  }) => Future.value(null);
+
+  @override
+  Future<void> discard() async {}
+
+  @override
+  Future<LiveTvPlaybackSession?> recover({required bool directStream, required bool directStreamAudio}) {
+    recoveries++;
+    // Held open: the assertion is that recovery started, not how it ends.
+    return Completer<LiveTvPlaybackSession?>().future;
+  }
+
+  @override
+  Future<String?> streamUrlAt({int? offsetSeconds, MediaSubtitleTrack? subtitleTrack}) =>
+      Future.value('http://example.invalid/live.ts');
 }
 
 class _LiveMediaServerClient implements MediaServerClient {
@@ -377,8 +523,12 @@ class _LiveMediaServerClient implements MediaServerClient {
 
 /// Records which channel a zap tunes. Declining the tune (Jellyfin's
 /// session-less negotiation returns null) keeps the test on the routing
-/// decision instead of standing up a replacement stream.
+/// decision instead of standing up a replacement stream. [firstStart] holds
+/// the first tune open for as long as a test needs it pending.
 class _RecordingLiveTvSupport implements LiveTvSupport {
+  _RecordingLiveTvSupport({this.firstStart});
+
+  final Future<LiveTvPlaybackSession?>? firstStart;
   final List<String> startedChannels = [];
 
   @override
@@ -388,6 +538,8 @@ class _RecordingLiveTvSupport implements LiveTvSupport {
     TranscodeQualityPreset quality = TranscodeQualityPreset.original,
   }) async {
     startedChannels.add(channelKey);
+    final pending = firstStart;
+    if (pending != null && startedChannels.length == 1) return pending;
     return null;
   }
 

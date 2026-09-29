@@ -311,6 +311,9 @@ class _Translations$settings$ko extends Translations$settings$en {
 	@override String get cellularQualitySameAsDefault => '기본 화질과 동일';
 	@override String get directPlayCoveredQuality => '작은 동영상을 원본 화질로 재생';
 	@override String get directPlayCoveredQualityDescription => '화질 제한 내의 동영상은 트랜스코딩하지 않고 Direct Play합니다';
+	@override String get videoCodecs => '비디오 코덱';
+	@override String get videoCodecsDescription => '선택 해제한 코덱은 서버가 트랜스코딩합니다';
+	@override String get videoCodecsAlwaysAccepted => '항상 허용';
 	@override String get musicQualityTitle => '음악 음질';
 	@override String get subtitleStyling => '자막 스타일';
 	@override String get subtitleStylingDescription => '자막 모양을 사용자 지정합니다';
@@ -453,8 +456,6 @@ class _Translations$settings$ko extends Translations$settings$en {
 	@override String get audioPassthroughDescription => 'Dolby/DTS 오디오를 재인코딩 없이 리시버나 TV로 전송하여 서라운드 사운드를 유지합니다. 소리가 나지 않으면 비활성화하세요.';
 	@override String get audioPassthroughDescriptionAppleTv => 'Dolby Digital Plus(Atmos 포함)에 Apple의 기본 Dolby 디코더를 사용합니다. DTS와 TrueHD는 계속 멀티채널 PCM으로 재생됩니다. 소리가 나지 않으면 비활성화하세요.';
 	@override String get audioPassthroughOverriddenByNormalization => '음량 정규화가 켜져 있는 동안 꺼짐';
-	@override String get audioDownmix => '스테레오로 다운믹스';
-	@override String get audioDownmixDescription => '서라운드 오디오를 스테레오 스피커나 헤드폰용 2채널로 믹스합니다';
 	@override String get downmixCenterBoost => '센터 채널 부스트';
 	@override String downmixCenterBoostValue({required Object db}) => '${db} dB';
 	@override String get downmixCenterBoostLabel => '부스트 (dB)';
@@ -471,6 +472,14 @@ class _Translations$settings$ko extends Translations$settings$en {
 	@override String get dvConversionNativeDescription => '네이티브 DV7을 강제하고 DV 변환 재시도를 억제합니다';
 	@override String get dvConversionDv81Description => 'Dolby Vision 프로필 8.1로 인라인 RPU 변환을 강제합니다';
 	@override String get dvConversionHevcStripDescription => 'Dolby Vision RPU/EL 레이어를 제거하고 일반 HEVC로 제공합니다';
+	@override String get hdrSdrConversion => 'HDR을 SDR로 변환';
+	@override String get hdrSdrConversionDescription => '디스플레이가 HDR을 표시할 수 없을 때 HDR 동영상을 무엇으로 변환할지 선택합니다.';
+	@override String get hdrSdrConversionAuto => '자동';
+	@override String get hdrSdrConversionAutoDescription => 'Android 9 이상에서는 기기, 이전 버전에서는 플레이어';
+	@override String get hdrSdrConversionDevice => '기기';
+	@override String get hdrSdrConversionDeviceDescription => '기기의 비디오 하드웨어가 변환합니다. 가장 빠르지만 색상은 기기에 따라 다릅니다';
+	@override String get hdrSdrConversionPlayer => '플레이어';
+	@override String get hdrSdrConversionPlayerDescription => '플레이어가 변환합니다. 색상은 일정하지만 저사양 TV 박스에서는 4K가 끊길 수 있습니다';
 	@override String get deinterlace => '디인터레이싱';
 	@override String get deinterlaceDescription => '인터레이스 비디오의 빗살 무늬 아티팩트를 제거합니다 (mpv 플레이어만 해당)';
 	@override String get requireProfileSelectionOnOpen => '앱 실행 시 프로필 선택';
@@ -962,6 +971,8 @@ class _Translations$messages$ko extends Translations$messages$en {
 	@override String get mediaUnreadableBody => '서버에서 이 항목을 찾았지만 파일을 읽을 수 없습니다(HTTP 404). 파일이 이동되거나 삭제되었거나 저장소가 오프라인 상태일 수 있습니다. 서버 관리자에게 파일 확인과 라이브러리 재스캔을 요청하세요.';
 	@override String get serverBusyTitle => '스트림을 사용할 수 없음';
 	@override String get serverBusyBody => '서버에서 이 파일의 스트리밍을 계속 거부했습니다(HTTP 503). 서버가 다시 시작 중이거나 사용량이 많을 수 있으며, 파일이 저장된 저장소가 오프라인일 수도 있습니다. 잠시 후 다시 시도하세요. 문제가 계속되면 서버 소유자에게 서버와 파일 저장소를 확인해 달라고 요청하세요.';
+	@override String get playbackNotAllowedTitle => '재생이 허용되지 않음';
+	@override String get playbackNotAllowedBody => '서버에서 이 항목의 스트리밍을 거부했습니다(HTTP 403). 계정에 재생 권한이 없거나 서버가 로컬 네트워크에서만 재생을 허용할 수 있습니다.';
 	@override String get logsUploaded => '로그 업로드 완료';
 	@override String get logsUploadFailed => '로그 업로드 실패';
 	@override String get logId => '로그 ID';
@@ -1131,6 +1142,8 @@ class _Translations$connections$ko extends Translations$connections$en {
 	@override String addConnectionSubtitleScoped({required Object displayName}) => '${displayName}에 추가: Plex, Jellyfin, Emby 또는 다른 프로필 연결';
 	@override String sessionExpiredOne({required Object name}) => '${name}의 세션이 만료되었습니다';
 	@override String sessionExpiredMany({required Object count}) => '${count}개 서버의 세션이 만료되었습니다';
+	@override String accessDeniedOne({required Object name}) => '${name}에서 이 계정의 접근을 거부했습니다';
+	@override String accessDeniedMany({required Object count}) => '${count}개 서버에서 이 계정의 접근을 거부했습니다';
 	@override String get signInAgain => '다시 로그인';
 	@override String editMediaBrowserTitle({required Object product}) => '${product} 연결 편집';
 	@override String editMediaBrowserIntro({required Object serverName}) => '${serverName}의 URL을 추가하거나 제거하세요. Plezy는 연결 가능한 URL 중 지연 시간이 가장 낮은 URL을 사용합니다.';
@@ -1822,6 +1835,7 @@ class _Translations$downloads$ko extends Translations$downloads$en {
 	@override String get syncRuleAvailable => '사용 가능';
 	@override String get syncRuleOffline => '오프라인';
 	@override String get syncRuleSignInRequired => '로그인 필요';
+	@override String get syncRuleAccessDenied => '접근 거부됨';
 	@override String get syncRuleNotAvailableForProfile => '현재 프로필에서 사용할 수 없음';
 	@override String get syncRuleUnknownServer => '알 수 없는 서버';
 	@override String get syncRuleListCreated => '동기화 규칙이 생성되었습니다';
@@ -1834,8 +1848,14 @@ class _Translations$downloads$ko extends Translations$downloads$en {
 	@override String get unknownAlbum => '알 수 없는 앨범';
 	@override String completedOfTotal({required Object completed, required Object total}) => '${completed}/${total} 완료';
 	@override String get errorFileNotFound => '파일을 찾을 수 없음(404)';
+	@override String get errorDownloadNotAllowed => '서버에서 다운로드를 허용하지 않음(403)';
 	@override String get errorDownloadFailed => '다운로드 실패';
-	@override String errorPostProcessing({required Object error}) => '후처리 실패: ${error}';
+	@override String errorDownloadFailedWithReason({required Object reason}) => '다운로드 실패: ${reason}';
+	@override String errorHttpStatus({required Object status}) => '다운로드 실패(HTTP ${status})';
+	@override String errorPostProcessing({required Object reason}) => '후처리 실패: ${reason}';
+	@override String get reasonFileNotSaved => '이 기기에 파일을 저장할 수 없습니다';
+	@override String get reasonCannotResume => '일부만 받은 다운로드를 이어서 받을 수 없습니다';
+	@override String get reasonDeviceStorageFull => '이 기기의 저장 공간이 부족합니다';
 	@override String get notificationDownloading => '다운로드 중...';
 	@override String get notificationComplete => '다운로드 완료';
 	@override String get notificationPaused => '다운로드 일시 중지';
@@ -1914,7 +1934,6 @@ class _Translations$videoSettings$ko extends Translations$videoSettings$en {
 	@override String get audioNormalization => '음량 정규화';
 	@override String get audioNormalizationDisablesPassthrough => '오디오를 PCM으로 디코딩합니다. 켜져 있는 동안 패스스루가 꺼집니다';
 	@override String get audioNormalizationStereoMix => '오디오를 스테레오 믹스로 디코딩합니다. 켜져 있는 동안 패스스루가 꺼집니다';
-	@override String get audioDownmix => '스테레오로 다운믹스';
 }
 
 // Path: performanceOverlay
@@ -3194,6 +3213,9 @@ extension on TranslationsKo {
 			'settings.cellularQualitySameAsDefault' => '기본 화질과 동일',
 			'settings.directPlayCoveredQuality' => '작은 동영상을 원본 화질로 재생',
 			'settings.directPlayCoveredQualityDescription' => '화질 제한 내의 동영상은 트랜스코딩하지 않고 Direct Play합니다',
+			'settings.videoCodecs' => '비디오 코덱',
+			'settings.videoCodecsDescription' => '선택 해제한 코덱은 서버가 트랜스코딩합니다',
+			'settings.videoCodecsAlwaysAccepted' => '항상 허용',
 			'settings.musicQualityTitle' => '음악 음질',
 			'settings.subtitleStyling' => '자막 스타일',
 			'settings.subtitleStylingDescription' => '자막 모양을 사용자 지정합니다',
@@ -3336,8 +3358,6 @@ extension on TranslationsKo {
 			'settings.audioPassthroughDescription' => 'Dolby/DTS 오디오를 재인코딩 없이 리시버나 TV로 전송하여 서라운드 사운드를 유지합니다. 소리가 나지 않으면 비활성화하세요.',
 			'settings.audioPassthroughDescriptionAppleTv' => 'Dolby Digital Plus(Atmos 포함)에 Apple의 기본 Dolby 디코더를 사용합니다. DTS와 TrueHD는 계속 멀티채널 PCM으로 재생됩니다. 소리가 나지 않으면 비활성화하세요.',
 			'settings.audioPassthroughOverriddenByNormalization' => '음량 정규화가 켜져 있는 동안 꺼짐',
-			'settings.audioDownmix' => '스테레오로 다운믹스',
-			'settings.audioDownmixDescription' => '서라운드 오디오를 스테레오 스피커나 헤드폰용 2채널로 믹스합니다',
 			'settings.downmixCenterBoost' => '센터 채널 부스트',
 			'settings.downmixCenterBoostValue' => ({required Object db}) => '${db} dB',
 			'settings.downmixCenterBoostLabel' => '부스트 (dB)',
@@ -3354,6 +3374,14 @@ extension on TranslationsKo {
 			'settings.dvConversionNativeDescription' => '네이티브 DV7을 강제하고 DV 변환 재시도를 억제합니다',
 			'settings.dvConversionDv81Description' => 'Dolby Vision 프로필 8.1로 인라인 RPU 변환을 강제합니다',
 			'settings.dvConversionHevcStripDescription' => 'Dolby Vision RPU/EL 레이어를 제거하고 일반 HEVC로 제공합니다',
+			'settings.hdrSdrConversion' => 'HDR을 SDR로 변환',
+			'settings.hdrSdrConversionDescription' => '디스플레이가 HDR을 표시할 수 없을 때 HDR 동영상을 무엇으로 변환할지 선택합니다.',
+			'settings.hdrSdrConversionAuto' => '자동',
+			'settings.hdrSdrConversionAutoDescription' => 'Android 9 이상에서는 기기, 이전 버전에서는 플레이어',
+			'settings.hdrSdrConversionDevice' => '기기',
+			'settings.hdrSdrConversionDeviceDescription' => '기기의 비디오 하드웨어가 변환합니다. 가장 빠르지만 색상은 기기에 따라 다릅니다',
+			'settings.hdrSdrConversionPlayer' => '플레이어',
+			'settings.hdrSdrConversionPlayerDescription' => '플레이어가 변환합니다. 색상은 일정하지만 저사양 TV 박스에서는 4K가 끊길 수 있습니다',
 			'settings.deinterlace' => '디인터레이싱',
 			'settings.deinterlaceDescription' => '인터레이스 비디오의 빗살 무늬 아티팩트를 제거합니다 (mpv 플레이어만 해당)',
 			'settings.requireProfileSelectionOnOpen' => '앱 실행 시 프로필 선택',
@@ -3509,6 +3537,8 @@ extension on TranslationsKo {
 			'fileInfo.languageCode' => '언어 코드',
 			'fileInfo.streamTitle' => '트랙 제목',
 			'fileInfo.channels' => '채널',
+			_ => null,
+		} ?? switch (path) {
 			'fileInfo.sampleRate' => '샘플 레이트',
 			'fileInfo.spatialAudio' => '공간 오디오',
 			'fileInfo.textBased' => '텍스트 기반',
@@ -3518,8 +3548,6 @@ extension on TranslationsKo {
 			'fileInfo.externalDelivery' => '별도 제공 가능',
 			'fileInfo.sidecarPath' => '사이드카 경로',
 			'fileInfo.sourceStream' => '복사 출처',
-			_ => null,
-		} ?? switch (path) {
 			'fileInfo.temporary' => '임시',
 			'fileInfo.timeBase' => '시간 기준',
 			'fileInfo.overallBitrate' => '전체 비트레이트',
@@ -3780,6 +3808,8 @@ extension on TranslationsKo {
 			'messages.mediaUnreadableBody' => '서버에서 이 항목을 찾았지만 파일을 읽을 수 없습니다(HTTP 404). 파일이 이동되거나 삭제되었거나 저장소가 오프라인 상태일 수 있습니다. 서버 관리자에게 파일 확인과 라이브러리 재스캔을 요청하세요.',
 			'messages.serverBusyTitle' => '스트림을 사용할 수 없음',
 			'messages.serverBusyBody' => '서버에서 이 파일의 스트리밍을 계속 거부했습니다(HTTP 503). 서버가 다시 시작 중이거나 사용량이 많을 수 있으며, 파일이 저장된 저장소가 오프라인일 수도 있습니다. 잠시 후 다시 시도하세요. 문제가 계속되면 서버 소유자에게 서버와 파일 저장소를 확인해 달라고 요청하세요.',
+			'messages.playbackNotAllowedTitle' => '재생이 허용되지 않음',
+			'messages.playbackNotAllowedBody' => '서버에서 이 항목의 스트리밍을 거부했습니다(HTTP 403). 계정에 재생 권한이 없거나 서버가 로컬 네트워크에서만 재생을 허용할 수 있습니다.',
 			'messages.logsUploaded' => '로그 업로드 완료',
 			'messages.logsUploadFailed' => '로그 업로드 실패',
 			'messages.logId' => '로그 ID',
@@ -3904,6 +3934,8 @@ extension on TranslationsKo {
 			'connections.addConnectionSubtitleScoped' => ({required Object displayName}) => '${displayName}에 추가: Plex, Jellyfin, Emby 또는 다른 프로필 연결',
 			'connections.sessionExpiredOne' => ({required Object name}) => '${name}의 세션이 만료되었습니다',
 			'connections.sessionExpiredMany' => ({required Object count}) => '${count}개 서버의 세션이 만료되었습니다',
+			'connections.accessDeniedOne' => ({required Object name}) => '${name}에서 이 계정의 접근을 거부했습니다',
+			'connections.accessDeniedMany' => ({required Object count}) => '${count}개 서버에서 이 계정의 접근을 거부했습니다',
 			'connections.signInAgain' => '다시 로그인',
 			'connections.editMediaBrowserTitle' => ({required Object product}) => '${product} 연결 편집',
 			'connections.editMediaBrowserIntro' => ({required Object serverName}) => '${serverName}의 URL을 추가하거나 제거하세요. Plezy는 연결 가능한 URL 중 지연 시간이 가장 낮은 URL을 사용합니다.',
@@ -4019,6 +4051,8 @@ extension on TranslationsKo {
 			'libraries.emptyingTrash' => ({required Object title}) => '「${title}」의 휴지통을 비우고 있습니다...',
 			'libraries.trashEmptied' => ({required Object title}) => '「${title}」의 휴지통을 비웠습니다',
 			'libraries.failedToEmptyTrash' => ({required Object error}) => '휴지통 비우기 실패: ${error}',
+			_ => null,
+		} ?? switch (path) {
 			'libraries.analyzing' => ({required Object title}) => '"${title}" 분석 중...',
 			'libraries.analysisStarted' => ({required Object title}) => '"${title}" 분석 시작됨',
 			'libraries.failedToAnalyze' => ({required Object error}) => '미디어 라이브러리 분석 실패: ${error}',
@@ -4032,8 +4066,6 @@ extension on TranslationsKo {
 			'libraries.clearAll' => '모두 삭제',
 			'libraries.scanLibraryConfirm' => ({required Object title}) => '「${title}」을(를) 스캔하시겠습니까?',
 			'libraries.analyzeLibraryConfirm' => ({required Object title}) => '「${title}」을(를) 분석하시겠습니까?',
-			_ => null,
-		} ?? switch (path) {
 			'libraries.refreshMetadataConfirm' => ({required Object title}) => '「${title}」의 메타데이터를 새로고침하시겠습니까?',
 			'libraries.emptyTrashConfirm' => ({required Object title}) => '${title}의 휴지통을 비우시겠습니까?',
 			'libraries.manageLibraries' => '미디어 라이브러리 관리',
@@ -4533,6 +4565,8 @@ extension on TranslationsKo {
 			'watchTogether.guestSwitchUnavailable' => '전환할 수 없음 — 동기화 서버를 사용할 수 없습니다',
 			'watchTogether.guestSwitchFailed' => '전환할 수 없음 — 이 서버에서 콘텐츠를 찾을 수 없습니다',
 			'watchTogether.defaultDisplayName' => '사용자',
+			_ => null,
+		} ?? switch (path) {
 			'watchTogether.errors.timedOut' => '릴레이 서버가 제시간에 응답하지 않았습니다',
 			'watchTogether.errors.connectionLost' => '세션이 준비되기 전에 연결이 종료되었습니다',
 			'watchTogether.errors.invalidRelayResponse' => '릴레이 서버가 예기치 않은 응답을 보냈습니다',
@@ -4546,8 +4580,6 @@ extension on TranslationsKo {
 			'downloads.tracksQueued' => ({required Object count}) => '${count}곡 다운로드 대기 중',
 			'downloads.noDownloads' => '다운로드 없음',
 			'downloads.noDownloadsDescription' => '다운로드한 콘텐츠는 오프라인 시청을 위해 여기에 표시됩니다',
-			_ => null,
-		} ?? switch (path) {
 			'downloads.downloadNow' => '다운로드',
 			'downloads.deleteDownload' => '다운로드 삭제',
 			'downloads.retryDownload' => '다운로드 재시도',
@@ -4612,6 +4644,7 @@ extension on TranslationsKo {
 			'downloads.syncRuleAvailable' => '사용 가능',
 			'downloads.syncRuleOffline' => '오프라인',
 			'downloads.syncRuleSignInRequired' => '로그인 필요',
+			'downloads.syncRuleAccessDenied' => '접근 거부됨',
 			'downloads.syncRuleNotAvailableForProfile' => '현재 프로필에서 사용할 수 없음',
 			'downloads.syncRuleUnknownServer' => '알 수 없는 서버',
 			'downloads.syncRuleListCreated' => '동기화 규칙이 생성되었습니다',
@@ -4649,8 +4682,14 @@ extension on TranslationsKo {
 			'downloads.unknownAlbum' => '알 수 없는 앨범',
 			'downloads.completedOfTotal' => ({required Object completed, required Object total}) => '${completed}/${total} 완료',
 			'downloads.errorFileNotFound' => '파일을 찾을 수 없음(404)',
+			'downloads.errorDownloadNotAllowed' => '서버에서 다운로드를 허용하지 않음(403)',
 			'downloads.errorDownloadFailed' => '다운로드 실패',
-			'downloads.errorPostProcessing' => ({required Object error}) => '후처리 실패: ${error}',
+			'downloads.errorDownloadFailedWithReason' => ({required Object reason}) => '다운로드 실패: ${reason}',
+			'downloads.errorHttpStatus' => ({required Object status}) => '다운로드 실패(HTTP ${status})',
+			'downloads.errorPostProcessing' => ({required Object reason}) => '후처리 실패: ${reason}',
+			'downloads.reasonFileNotSaved' => '이 기기에 파일을 저장할 수 없습니다',
+			'downloads.reasonCannotResume' => '일부만 받은 다운로드를 이어서 받을 수 없습니다',
+			'downloads.reasonDeviceStorageFull' => '이 기기의 저장 공간이 부족합니다',
 			'downloads.notificationDownloading' => '다운로드 중...',
 			'downloads.notificationComplete' => '다운로드 완료',
 			'downloads.notificationPaused' => '다운로드 일시 중지',
@@ -4760,7 +4799,6 @@ extension on TranslationsKo {
 			'videoSettings.audioNormalization' => '음량 정규화',
 			'videoSettings.audioNormalizationDisablesPassthrough' => '오디오를 PCM으로 디코딩합니다. 켜져 있는 동안 패스스루가 꺼집니다',
 			'videoSettings.audioNormalizationStereoMix' => '오디오를 스테레오 믹스로 디코딩합니다. 켜져 있는 동안 패스스루가 꺼집니다',
-			'videoSettings.audioDownmix' => '스테레오로 다운믹스',
 			'performanceOverlay.color' => '색상',
 			'performanceOverlay.performance' => '성능',
 			'performanceOverlay.buffer' => '버퍼',
@@ -5041,6 +5079,8 @@ extension on TranslationsKo {
 			'addServer.invalidCredentials' => '사용자 이름 또는 비밀번호가 올바르지 않습니다',
 			'addServer.authResponseNotJson' => '인증 응답이 유효한 JSON이 아닙니다',
 			'addServer.authResponseIncomplete' => '서버의 로그인 응답이 불완전합니다',
+			_ => null,
+		} ?? switch (path) {
 			'addServer.quickConnectRejected' => '서버에서 Quick Connect를 거부했습니다',
 			'addServer.quickConnectNotJson' => 'Quick Connect 응답이 유효한 JSON이 아닙니다',
 			'addServer.quickConnectMissingFields' => 'Quick Connect 응답에 코드 또는 비밀 키가 없습니다',

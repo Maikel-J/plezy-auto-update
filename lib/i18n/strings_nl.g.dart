@@ -311,6 +311,9 @@ class _Translations$settings$nl extends Translations$settings$en {
 	@override String get cellularQualitySameAsDefault => 'Zelfde als standaardkwaliteit';
 	@override String get directPlayCoveredQuality => 'Kleinere video\'s op originele kwaliteit afspelen';
 	@override String get directPlayCoveredQualityDescription => 'Speel video\'s die al binnen de kwaliteitslimiet vallen direct af in plaats van ze te transcoderen';
+	@override String get videoCodecs => 'Videocodecs';
+	@override String get videoCodecsDescription => 'Niet-aangevinkte codecs worden door de server getranscodeerd';
+	@override String get videoCodecsAlwaysAccepted => 'Altijd geaccepteerd';
 	@override String get musicQualityTitle => 'Muziekkwaliteit';
 	@override String get subtitleStyling => 'Ondertitelopmaak';
 	@override String get subtitleStylingDescription => 'Pas de weergave van ondertitels aan';
@@ -453,8 +456,6 @@ class _Translations$settings$nl extends Translations$settings$en {
 	@override String get audioPassthroughDescription => 'Stuur Dolby/DTS-audio zonder hercodering naar je receiver of tv en behoud surroundgeluid. Schakel uit als je geen geluid hebt.';
 	@override String get audioPassthroughDescriptionAppleTv => 'Gebruik de ingebouwde Dolby-decoder van Apple voor Dolby Digital Plus, inclusief Atmos. DTS en TrueHD worden nog steeds als meerkanaals-PCM afgespeeld. Schakel dit uit als je geen geluid hoort.';
 	@override String get audioPassthroughOverriddenByNormalization => 'Uit zolang volumenormalisatie aan staat';
-	@override String get audioDownmix => 'Downmixen naar stereo';
-	@override String get audioDownmixDescription => 'Mix surroundgeluid terug naar twee kanalen voor stereoluidsprekers of een koptelefoon';
 	@override String get downmixCenterBoost => 'Versterking middenkanaal';
 	@override String downmixCenterBoostValue({required Object db}) => '${db} dB';
 	@override String get downmixCenterBoostLabel => 'Versterking (dB)';
@@ -471,6 +472,14 @@ class _Translations$settings$nl extends Translations$settings$en {
 	@override String get dvConversionNativeDescription => 'Dwing native DV7 af en voorkom een nieuwe poging met DV-conversie';
 	@override String get dvConversionDv81Description => 'Dwing directe RPU-conversie naar Dolby Vision-profiel 8.1 af';
 	@override String get dvConversionHevcStripDescription => 'Verwijder Dolby Vision RPU/EL-lagen en bied gewone HEVC aan';
+	@override String get hdrSdrConversion => 'HDR-naar-SDR-conversie';
+	@override String get hdrSdrConversionDescription => 'Kies wat HDR-video omzet als het scherm geen HDR kan weergeven.';
+	@override String get hdrSdrConversionAuto => 'Automatisch';
+	@override String get hdrSdrConversionAutoDescription => 'Apparaat vanaf Android 9, speler op oudere versies';
+	@override String get hdrSdrConversionDevice => 'Apparaat';
+	@override String get hdrSdrConversionDeviceDescription => 'De videohardware van het apparaat zet het om. Het snelst, maar de kleuren hangen af van het apparaat';
+	@override String get hdrSdrConversionPlayer => 'Speler';
+	@override String get hdrSdrConversionPlayerDescription => 'De speler zet het om. Consistente kleuren, maar 4K kan haperen op eenvoudige tv-boxen';
 	@override String get deinterlace => 'Deinterlacing';
 	@override String get deinterlaceDescription => 'Verwijder kamartefacten uit interlaced video (alleen mpv-speler)';
 	@override String get requireProfileSelectionOnOpen => 'Vraag om profiel bij openen';
@@ -966,6 +975,8 @@ class _Translations$messages$nl extends Translations$messages$en {
 	@override String get mediaUnreadableBody => 'De server heeft dit item gevonden maar kon het bestand niet lezen (HTTP 404). Het bestand is waarschijnlijk verplaatst of verwijderd, of de opslag is offline. Vraag de serverbeheerder om het bestand te controleren en de bibliotheek opnieuw te scannen.';
 	@override String get serverBusyTitle => 'Stream niet beschikbaar';
 	@override String get serverBusyBody => 'De server bleef weigeren dit bestand te streamen (HTTP 503). Mogelijk wordt de server opnieuw opgestart, is deze bezet of is de opslag van het bestand offline. Probeer het over een moment opnieuw — als dit blijft gebeuren, vraag dan de servereigenaar om de server en de opslag van het bestand te controleren.';
+	@override String get playbackNotAllowedTitle => 'Afspelen niet toegestaan';
+	@override String get playbackNotAllowedBody => 'De server weigerde dit item te streamen (HTTP 403). Je account heeft mogelijk geen toestemming om het af te spelen, of de server staat afspelen alleen toe op het eigen lokale netwerk.';
 	@override String get logsUploaded => 'Logbestanden geüpload';
 	@override String get logsUploadFailed => 'Uploaden van logbestanden mislukt';
 	@override String get logId => 'Logboek-ID';
@@ -1135,6 +1146,8 @@ class _Translations$connections$nl extends Translations$connections$en {
 	@override String addConnectionSubtitleScoped({required Object displayName}) => 'Toevoegen aan ${displayName}: Plex, Jellyfin, Emby of een andere profielverbinding';
 	@override String sessionExpiredOne({required Object name}) => 'Sessie verlopen voor ${name}';
 	@override String sessionExpiredMany({required Object count}) => 'Sessie verlopen voor ${count} servers';
+	@override String accessDeniedOne({required Object name}) => '${name} weigerde toegang voor dit account';
+	@override String accessDeniedMany({required Object count}) => '${count} servers weigerden toegang voor dit account';
 	@override String get signInAgain => 'Opnieuw aanmelden';
 	@override String editMediaBrowserTitle({required Object product}) => '${product}-verbinding bewerken';
 	@override String editMediaBrowserIntro({required Object serverName}) => 'Voeg URL\'s toe aan ${serverName} of verwijder ze. Plezy gebruikt de bereikbare URL met de laagste latentie.';
@@ -1831,6 +1844,7 @@ class _Translations$downloads$nl extends Translations$downloads$en {
 	@override String get syncRuleAvailable => 'Beschikbaar';
 	@override String get syncRuleOffline => 'Offline';
 	@override String get syncRuleSignInRequired => 'Inloggen vereist';
+	@override String get syncRuleAccessDenied => 'Toegang geweigerd';
 	@override String get syncRuleNotAvailableForProfile => 'Niet beschikbaar voor huidig profiel';
 	@override String get syncRuleUnknownServer => 'Onbekende server';
 	@override String get syncRuleListCreated => 'Synchronisatieregel aangemaakt';
@@ -1843,8 +1857,14 @@ class _Translations$downloads$nl extends Translations$downloads$en {
 	@override String get unknownAlbum => 'Onbekend album';
 	@override String completedOfTotal({required Object completed, required Object total}) => '${completed}/${total} voltooid';
 	@override String get errorFileNotFound => 'Bestand niet gevonden (404)';
+	@override String get errorDownloadNotAllowed => 'Downloaden niet toegestaan door de server (403)';
 	@override String get errorDownloadFailed => 'Download mislukt';
-	@override String errorPostProcessing({required Object error}) => 'Nabewerking mislukt: ${error}';
+	@override String errorDownloadFailedWithReason({required Object reason}) => 'Download mislukt: ${reason}';
+	@override String errorHttpStatus({required Object status}) => 'Download mislukt (HTTP ${status})';
+	@override String errorPostProcessing({required Object reason}) => 'Nabewerking mislukt: ${reason}';
+	@override String get reasonFileNotSaved => 'het bestand kon niet op dit apparaat worden opgeslagen';
+	@override String get reasonCannotResume => 'de gedeeltelijke download kon niet worden hervat';
+	@override String get reasonDeviceStorageFull => 'dit apparaat heeft geen opslagruimte meer';
 	@override String get notificationDownloading => 'Downloaden...';
 	@override String get notificationComplete => 'Download voltooid';
 	@override String get notificationPaused => 'Download gepauzeerd';
@@ -1923,7 +1943,6 @@ class _Translations$videoSettings$nl extends Translations$videoSettings$en {
 	@override String get audioNormalization => 'Volume normaliseren';
 	@override String get audioNormalizationDisablesPassthrough => 'Decodeert audio naar PCM; doorvoer is uit zolang dit aan staat';
 	@override String get audioNormalizationStereoMix => 'Decodeert audio naar een stereomix; doorvoer is uit zolang dit aan staat';
-	@override String get audioDownmix => 'Downmixen naar stereo';
 }
 
 // Path: performanceOverlay
@@ -3205,6 +3224,9 @@ extension on TranslationsNl {
 			'settings.cellularQualitySameAsDefault' => 'Zelfde als standaardkwaliteit',
 			'settings.directPlayCoveredQuality' => 'Kleinere video\'s op originele kwaliteit afspelen',
 			'settings.directPlayCoveredQualityDescription' => 'Speel video\'s die al binnen de kwaliteitslimiet vallen direct af in plaats van ze te transcoderen',
+			'settings.videoCodecs' => 'Videocodecs',
+			'settings.videoCodecsDescription' => 'Niet-aangevinkte codecs worden door de server getranscodeerd',
+			'settings.videoCodecsAlwaysAccepted' => 'Altijd geaccepteerd',
 			'settings.musicQualityTitle' => 'Muziekkwaliteit',
 			'settings.subtitleStyling' => 'Ondertitelopmaak',
 			'settings.subtitleStylingDescription' => 'Pas de weergave van ondertitels aan',
@@ -3347,8 +3369,6 @@ extension on TranslationsNl {
 			'settings.audioPassthroughDescription' => 'Stuur Dolby/DTS-audio zonder hercodering naar je receiver of tv en behoud surroundgeluid. Schakel uit als je geen geluid hebt.',
 			'settings.audioPassthroughDescriptionAppleTv' => 'Gebruik de ingebouwde Dolby-decoder van Apple voor Dolby Digital Plus, inclusief Atmos. DTS en TrueHD worden nog steeds als meerkanaals-PCM afgespeeld. Schakel dit uit als je geen geluid hoort.',
 			'settings.audioPassthroughOverriddenByNormalization' => 'Uit zolang volumenormalisatie aan staat',
-			'settings.audioDownmix' => 'Downmixen naar stereo',
-			'settings.audioDownmixDescription' => 'Mix surroundgeluid terug naar twee kanalen voor stereoluidsprekers of een koptelefoon',
 			'settings.downmixCenterBoost' => 'Versterking middenkanaal',
 			'settings.downmixCenterBoostValue' => ({required Object db}) => '${db} dB',
 			'settings.downmixCenterBoostLabel' => 'Versterking (dB)',
@@ -3365,6 +3385,14 @@ extension on TranslationsNl {
 			'settings.dvConversionNativeDescription' => 'Dwing native DV7 af en voorkom een nieuwe poging met DV-conversie',
 			'settings.dvConversionDv81Description' => 'Dwing directe RPU-conversie naar Dolby Vision-profiel 8.1 af',
 			'settings.dvConversionHevcStripDescription' => 'Verwijder Dolby Vision RPU/EL-lagen en bied gewone HEVC aan',
+			'settings.hdrSdrConversion' => 'HDR-naar-SDR-conversie',
+			'settings.hdrSdrConversionDescription' => 'Kies wat HDR-video omzet als het scherm geen HDR kan weergeven.',
+			'settings.hdrSdrConversionAuto' => 'Automatisch',
+			'settings.hdrSdrConversionAutoDescription' => 'Apparaat vanaf Android 9, speler op oudere versies',
+			'settings.hdrSdrConversionDevice' => 'Apparaat',
+			'settings.hdrSdrConversionDeviceDescription' => 'De videohardware van het apparaat zet het om. Het snelst, maar de kleuren hangen af van het apparaat',
+			'settings.hdrSdrConversionPlayer' => 'Speler',
+			'settings.hdrSdrConversionPlayerDescription' => 'De speler zet het om. Consistente kleuren, maar 4K kan haperen op eenvoudige tv-boxen',
 			'settings.deinterlace' => 'Deinterlacing',
 			'settings.deinterlaceDescription' => 'Verwijder kamartefacten uit interlaced video (alleen mpv-speler)',
 			'settings.requireProfileSelectionOnOpen' => 'Vraag om profiel bij openen',
@@ -3520,6 +3548,8 @@ extension on TranslationsNl {
 			'fileInfo.languageCode' => 'Taalcode',
 			'fileInfo.streamTitle' => 'Tracktitel',
 			'fileInfo.channels' => 'Kanalen',
+			_ => null,
+		} ?? switch (path) {
 			'fileInfo.sampleRate' => 'Samplingsnelheid',
 			'fileInfo.spatialAudio' => 'Ruimtelijke audio',
 			'fileInfo.textBased' => 'Op tekst gebaseerd',
@@ -3529,8 +3559,6 @@ extension on TranslationsNl {
 			'fileInfo.externalDelivery' => 'Kan afzonderlijk worden geleverd',
 			'fileInfo.sidecarPath' => 'Sidecar-pad',
 			'fileInfo.sourceStream' => 'Gekopieerd van',
-			_ => null,
-		} ?? switch (path) {
 			'fileInfo.temporary' => 'Tijdelijk',
 			'fileInfo.timeBase' => 'Tijdbasis',
 			'fileInfo.overallBitrate' => 'Totale bitrate',
@@ -3791,6 +3819,8 @@ extension on TranslationsNl {
 			'messages.mediaUnreadableBody' => 'De server heeft dit item gevonden maar kon het bestand niet lezen (HTTP 404). Het bestand is waarschijnlijk verplaatst of verwijderd, of de opslag is offline. Vraag de serverbeheerder om het bestand te controleren en de bibliotheek opnieuw te scannen.',
 			'messages.serverBusyTitle' => 'Stream niet beschikbaar',
 			'messages.serverBusyBody' => 'De server bleef weigeren dit bestand te streamen (HTTP 503). Mogelijk wordt de server opnieuw opgestart, is deze bezet of is de opslag van het bestand offline. Probeer het over een moment opnieuw — als dit blijft gebeuren, vraag dan de servereigenaar om de server en de opslag van het bestand te controleren.',
+			'messages.playbackNotAllowedTitle' => 'Afspelen niet toegestaan',
+			'messages.playbackNotAllowedBody' => 'De server weigerde dit item te streamen (HTTP 403). Je account heeft mogelijk geen toestemming om het af te spelen, of de server staat afspelen alleen toe op het eigen lokale netwerk.',
 			'messages.logsUploaded' => 'Logbestanden geüpload',
 			'messages.logsUploadFailed' => 'Uploaden van logbestanden mislukt',
 			'messages.logId' => 'Logboek-ID',
@@ -3915,6 +3945,8 @@ extension on TranslationsNl {
 			'connections.addConnectionSubtitleScoped' => ({required Object displayName}) => 'Toevoegen aan ${displayName}: Plex, Jellyfin, Emby of een andere profielverbinding',
 			'connections.sessionExpiredOne' => ({required Object name}) => 'Sessie verlopen voor ${name}',
 			'connections.sessionExpiredMany' => ({required Object count}) => 'Sessie verlopen voor ${count} servers',
+			'connections.accessDeniedOne' => ({required Object name}) => '${name} weigerde toegang voor dit account',
+			'connections.accessDeniedMany' => ({required Object count}) => '${count} servers weigerden toegang voor dit account',
 			'connections.signInAgain' => 'Opnieuw aanmelden',
 			'connections.editMediaBrowserTitle' => ({required Object product}) => '${product}-verbinding bewerken',
 			'connections.editMediaBrowserIntro' => ({required Object serverName}) => 'Voeg URL\'s toe aan ${serverName} of verwijder ze. Plezy gebruikt de bereikbare URL met de laagste latentie.',
@@ -4030,6 +4062,8 @@ extension on TranslationsNl {
 			'libraries.emptyingTrash' => ({required Object title}) => 'Prullenbak legen voor "${title}"...',
 			'libraries.trashEmptied' => ({required Object title}) => 'Prullenbak geleegd voor "${title}"',
 			'libraries.failedToEmptyTrash' => ({required Object error}) => 'Kon prullenbak niet legen: ${error}',
+			_ => null,
+		} ?? switch (path) {
 			'libraries.analyzing' => ({required Object title}) => 'Analyseren "${title}"...',
 			'libraries.analysisStarted' => ({required Object title}) => 'Analyse gestart voor "${title}"',
 			'libraries.failedToAnalyze' => ({required Object error}) => 'Kon bibliotheek niet analyseren: ${error}',
@@ -4043,8 +4077,6 @@ extension on TranslationsNl {
 			'libraries.clearAll' => 'Alles wissen',
 			'libraries.scanLibraryConfirm' => ({required Object title}) => 'Weet je zeker dat je "${title}" wilt scannen?',
 			'libraries.analyzeLibraryConfirm' => ({required Object title}) => 'Weet je zeker dat je "${title}" wilt analyseren?',
-			_ => null,
-		} ?? switch (path) {
 			'libraries.refreshMetadataConfirm' => ({required Object title}) => 'Weet je zeker dat je metadata wilt vernieuwen voor "${title}"?',
 			'libraries.emptyTrashConfirm' => ({required Object title}) => 'Weet je zeker dat je de prullenbak wilt legen voor "${title}"?',
 			'libraries.manageLibraries' => 'Bibliotheken beheren',
@@ -4544,6 +4576,8 @@ extension on TranslationsNl {
 			'watchTogether.guestSwitchUnavailable' => 'Kon niet schakelen — server niet beschikbaar voor synchronisatie',
 			'watchTogether.guestSwitchFailed' => 'Kon niet schakelen — inhoud niet gevonden op deze server',
 			'watchTogether.defaultDisplayName' => 'Gebruiker',
+			_ => null,
+		} ?? switch (path) {
 			'watchTogether.errors.timedOut' => 'De relayserver heeft niet op tijd gereageerd',
 			'watchTogether.errors.connectionLost' => 'De verbinding is verbroken voordat de sessie gereed was',
 			'watchTogether.errors.invalidRelayResponse' => 'De relayserver heeft een onverwacht antwoord verzonden',
@@ -4557,8 +4591,6 @@ extension on TranslationsNl {
 			'downloads.tracksQueued' => ({required Object count}) => '${count} nummers in wachtrij voor download',
 			'downloads.noDownloads' => 'Nog geen downloads',
 			'downloads.noDownloadsDescription' => 'Gedownloade inhoud verschijnt hier om offline te bekijken',
-			_ => null,
-		} ?? switch (path) {
 			'downloads.downloadNow' => 'Downloaden',
 			'downloads.deleteDownload' => 'Download verwijderen',
 			'downloads.retryDownload' => 'Download opnieuw proberen',
@@ -4623,6 +4655,7 @@ extension on TranslationsNl {
 			'downloads.syncRuleAvailable' => 'Beschikbaar',
 			'downloads.syncRuleOffline' => 'Offline',
 			'downloads.syncRuleSignInRequired' => 'Inloggen vereist',
+			'downloads.syncRuleAccessDenied' => 'Toegang geweigerd',
 			'downloads.syncRuleNotAvailableForProfile' => 'Niet beschikbaar voor huidig profiel',
 			'downloads.syncRuleUnknownServer' => 'Onbekende server',
 			'downloads.syncRuleListCreated' => 'Synchronisatieregel aangemaakt',
@@ -4660,8 +4693,14 @@ extension on TranslationsNl {
 			'downloads.unknownAlbum' => 'Onbekend album',
 			'downloads.completedOfTotal' => ({required Object completed, required Object total}) => '${completed}/${total} voltooid',
 			'downloads.errorFileNotFound' => 'Bestand niet gevonden (404)',
+			'downloads.errorDownloadNotAllowed' => 'Downloaden niet toegestaan door de server (403)',
 			'downloads.errorDownloadFailed' => 'Download mislukt',
-			'downloads.errorPostProcessing' => ({required Object error}) => 'Nabewerking mislukt: ${error}',
+			'downloads.errorDownloadFailedWithReason' => ({required Object reason}) => 'Download mislukt: ${reason}',
+			'downloads.errorHttpStatus' => ({required Object status}) => 'Download mislukt (HTTP ${status})',
+			'downloads.errorPostProcessing' => ({required Object reason}) => 'Nabewerking mislukt: ${reason}',
+			'downloads.reasonFileNotSaved' => 'het bestand kon niet op dit apparaat worden opgeslagen',
+			'downloads.reasonCannotResume' => 'de gedeeltelijke download kon niet worden hervat',
+			'downloads.reasonDeviceStorageFull' => 'dit apparaat heeft geen opslagruimte meer',
 			'downloads.notificationDownloading' => 'Downloaden...',
 			'downloads.notificationComplete' => 'Download voltooid',
 			'downloads.notificationPaused' => 'Download gepauzeerd',
@@ -4771,7 +4810,6 @@ extension on TranslationsNl {
 			'videoSettings.audioNormalization' => 'Volume normaliseren',
 			'videoSettings.audioNormalizationDisablesPassthrough' => 'Decodeert audio naar PCM; doorvoer is uit zolang dit aan staat',
 			'videoSettings.audioNormalizationStereoMix' => 'Decodeert audio naar een stereomix; doorvoer is uit zolang dit aan staat',
-			'videoSettings.audioDownmix' => 'Downmixen naar stereo',
 			'performanceOverlay.color' => 'Kleur',
 			'performanceOverlay.performance' => 'Prestaties',
 			'performanceOverlay.buffer' => 'Buffer',
@@ -5052,6 +5090,8 @@ extension on TranslationsNl {
 			'addServer.invalidCredentials' => 'Ongeldige gebruikersnaam of ongeldig wachtwoord',
 			'addServer.authResponseNotJson' => 'Het authenticatieantwoord was geen geldige JSON',
 			'addServer.authResponseIncomplete' => 'Het aanmeldingsantwoord van de server was onvolledig',
+			_ => null,
+		} ?? switch (path) {
 			'addServer.quickConnectRejected' => 'Quick Connect is door de server geweigerd',
 			'addServer.quickConnectNotJson' => 'Het Quick Connect-antwoord was geen geldige JSON',
 			'addServer.quickConnectMissingFields' => 'In het Quick Connect-antwoord ontbreekt een code of geheim',

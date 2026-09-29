@@ -311,6 +311,9 @@ class Translations$settings$zh extends Translations$settings$en {
 	@override String get cellularQualitySameAsDefault => '与默认画质相同';
 	@override String get directPlayCoveredQuality => '以原始画质播放较小视频';
 	@override String get directPlayCoveredQualityDescription => '已在画质限制内的视频直接播放，而非转码';
+	@override String get videoCodecs => '视频编解码器';
+	@override String get videoCodecsDescription => '未勾选的编解码器将由服务器转码';
+	@override String get videoCodecsAlwaysAccepted => '始终接受';
 	@override String get musicQualityTitle => '音乐音质';
 	@override String get subtitleStyling => '字幕样式';
 	@override String get subtitleStylingDescription => '调整字幕外观';
@@ -453,8 +456,6 @@ class Translations$settings$zh extends Translations$settings$en {
 	@override String get audioPassthroughDescription => '将 Dolby/DTS 音频不经重新编码直接发送到功放或电视，保留环绕声。如果没有声音，请关闭。';
 	@override String get audioPassthroughDescriptionAppleTv => '对 Dolby Digital Plus（含 Atmos）使用 Apple 原生 Dolby 解码器。DTS 和 TrueHD 仍以多声道 PCM 播放。如果没有声音，请关闭。';
 	@override String get audioPassthroughOverriddenByNormalization => '响度标准化开启时停用';
-	@override String get audioDownmix => '下混为立体声';
-	@override String get audioDownmixDescription => '将环绕声混合为双声道，适用于立体声音箱或耳机';
 	@override String get downmixCenterBoost => '中置声道增强';
 	@override String downmixCenterBoostValue({required Object db}) => '${db} dB';
 	@override String get downmixCenterBoostLabel => '增强（dB）';
@@ -471,6 +472,14 @@ class Translations$settings$zh extends Translations$settings$en {
 	@override String get dvConversionNativeDescription => '强制原生 DV7 并禁止重试 DV 转换';
 	@override String get dvConversionDv81Description => '强制内联 RPU 转换为 Dolby Vision Profile 8.1';
 	@override String get dvConversionHevcStripDescription => '移除 Dolby Vision RPU/EL 层并呈现普通 HEVC';
+	@override String get hdrSdrConversion => 'HDR 转 SDR';
+	@override String get hdrSdrConversionDescription => '选择在显示器无法显示 HDR 时由谁转换 HDR 视频。';
+	@override String get hdrSdrConversionAuto => '自动';
+	@override String get hdrSdrConversionAutoDescription => 'Android 9 及更高版本使用设备，更早版本使用播放器';
+	@override String get hdrSdrConversionDevice => '设备';
+	@override String get hdrSdrConversionDeviceDescription => '由设备的视频硬件转换。速度最快，但色彩取决于设备';
+	@override String get hdrSdrConversionPlayer => '播放器';
+	@override String get hdrSdrConversionPlayerDescription => '由播放器转换。色彩一致，但在低端电视盒上 4K 可能卡顿';
 	@override String get deinterlace => '去隔行';
 	@override String get deinterlaceDescription => '消除隔行扫描视频中的梳状伪影（仅 mpv 播放器）';
 	@override String get requireProfileSelectionOnOpen => '打开应用时选择用户资料';
@@ -962,6 +971,8 @@ class Translations$messages$zh extends Translations$messages$en {
 	@override String get mediaUnreadableBody => '服务器找到了此项目，但无法读取其文件（HTTP 404）。文件可能已被移动、删除，或其存储已离线。请联系服务器管理员检查文件并重新扫描媒体库。';
 	@override String get serverBusyTitle => '视频流不可用';
 	@override String get serverBusyBody => '服务器持续拒绝传输此文件（HTTP 503）。服务器可能正在重启或正忙，也可能是文件所在的存储设备已离线。请稍后重试；如果问题持续出现，请联系服务器所有者检查服务器和文件存储设备。';
+	@override String get playbackNotAllowedTitle => '不允许播放';
+	@override String get playbackNotAllowedBody => '服务器拒绝传输此项目（HTTP 403）。此账户可能没有播放权限，或服务器可能仅允许在其局域网内播放。';
 	@override String get logsUploaded => '日志已上传';
 	@override String get logsUploadFailed => '上传日志失败';
 	@override String get logId => '日志 ID';
@@ -1131,6 +1142,8 @@ class Translations$connections$zh extends Translations$connections$en {
 	@override String addConnectionSubtitleScoped({required Object displayName}) => '添加到 ${displayName}：Plex、Jellyfin、Emby，或其他用户资料的连接';
 	@override String sessionExpiredOne({required Object name}) => '${name} 的会话已过期';
 	@override String sessionExpiredMany({required Object count}) => '${count} 个服务器的会话已过期';
+	@override String accessDeniedOne({required Object name}) => '${name} 拒绝此账户访问';
+	@override String accessDeniedMany({required Object count}) => '${count} 台服务器拒绝此账户访问';
 	@override String get signInAgain => '重新登录';
 	@override String editMediaBrowserTitle({required Object product}) => '编辑 ${product} 连接';
 	@override String editMediaBrowserIntro({required Object serverName}) => '为 ${serverName} 添加或移除 URL。Plezy 会使用延迟最低且可访问的 URL。';
@@ -1822,6 +1835,7 @@ class Translations$downloads$zh extends Translations$downloads$en {
 	@override String get syncRuleAvailable => '可用';
 	@override String get syncRuleOffline => '离线';
 	@override String get syncRuleSignInRequired => '需要登录';
+	@override String get syncRuleAccessDenied => '访问被拒绝';
 	@override String get syncRuleNotAvailableForProfile => '当前用户资料不可用';
 	@override String get syncRuleUnknownServer => '未知服务器';
 	@override String get syncRuleListCreated => '同步规则已创建';
@@ -1834,8 +1848,14 @@ class Translations$downloads$zh extends Translations$downloads$en {
 	@override String get unknownAlbum => '未知专辑';
 	@override String completedOfTotal({required Object completed, required Object total}) => '已完成 ${completed}/${total}';
 	@override String get errorFileNotFound => '未找到文件（404）';
+	@override String get errorDownloadNotAllowed => '服务器不允许下载（403）';
 	@override String get errorDownloadFailed => '下载失败';
-	@override String errorPostProcessing({required Object error}) => '后处理失败：${error}';
+	@override String errorDownloadFailedWithReason({required Object reason}) => '下载失败：${reason}';
+	@override String errorHttpStatus({required Object status}) => '下载失败（HTTP ${status}）';
+	@override String errorPostProcessing({required Object reason}) => '后处理失败：${reason}';
+	@override String get reasonFileNotSaved => '无法将文件保存到此设备';
+	@override String get reasonCannotResume => '无法继续未完成的下载';
+	@override String get reasonDeviceStorageFull => '此设备的存储空间已满';
 	@override String get notificationDownloading => '正在下载…';
 	@override String get notificationComplete => '下载完成';
 	@override String get notificationPaused => '下载已暂停';
@@ -1914,7 +1934,6 @@ class Translations$videoSettings$zh extends Translations$videoSettings$en {
 	@override String get audioNormalization => '响度标准化';
 	@override String get audioNormalizationDisablesPassthrough => '将音频解码为 PCM；开启时直通关闭';
 	@override String get audioNormalizationStereoMix => '将音频解码为立体声混音；开启时直通关闭';
-	@override String get audioDownmix => '下混为立体声';
 }
 
 // Path: performanceOverlay
@@ -3194,6 +3213,9 @@ extension on TranslationsZh {
 			'settings.cellularQualitySameAsDefault' => '与默认画质相同',
 			'settings.directPlayCoveredQuality' => '以原始画质播放较小视频',
 			'settings.directPlayCoveredQualityDescription' => '已在画质限制内的视频直接播放，而非转码',
+			'settings.videoCodecs' => '视频编解码器',
+			'settings.videoCodecsDescription' => '未勾选的编解码器将由服务器转码',
+			'settings.videoCodecsAlwaysAccepted' => '始终接受',
 			'settings.musicQualityTitle' => '音乐音质',
 			'settings.subtitleStyling' => '字幕样式',
 			'settings.subtitleStylingDescription' => '调整字幕外观',
@@ -3336,8 +3358,6 @@ extension on TranslationsZh {
 			'settings.audioPassthroughDescription' => '将 Dolby/DTS 音频不经重新编码直接发送到功放或电视，保留环绕声。如果没有声音，请关闭。',
 			'settings.audioPassthroughDescriptionAppleTv' => '对 Dolby Digital Plus（含 Atmos）使用 Apple 原生 Dolby 解码器。DTS 和 TrueHD 仍以多声道 PCM 播放。如果没有声音，请关闭。',
 			'settings.audioPassthroughOverriddenByNormalization' => '响度标准化开启时停用',
-			'settings.audioDownmix' => '下混为立体声',
-			'settings.audioDownmixDescription' => '将环绕声混合为双声道，适用于立体声音箱或耳机',
 			'settings.downmixCenterBoost' => '中置声道增强',
 			'settings.downmixCenterBoostValue' => ({required Object db}) => '${db} dB',
 			'settings.downmixCenterBoostLabel' => '增强（dB）',
@@ -3354,6 +3374,14 @@ extension on TranslationsZh {
 			'settings.dvConversionNativeDescription' => '强制原生 DV7 并禁止重试 DV 转换',
 			'settings.dvConversionDv81Description' => '强制内联 RPU 转换为 Dolby Vision Profile 8.1',
 			'settings.dvConversionHevcStripDescription' => '移除 Dolby Vision RPU/EL 层并呈现普通 HEVC',
+			'settings.hdrSdrConversion' => 'HDR 转 SDR',
+			'settings.hdrSdrConversionDescription' => '选择在显示器无法显示 HDR 时由谁转换 HDR 视频。',
+			'settings.hdrSdrConversionAuto' => '自动',
+			'settings.hdrSdrConversionAutoDescription' => 'Android 9 及更高版本使用设备，更早版本使用播放器',
+			'settings.hdrSdrConversionDevice' => '设备',
+			'settings.hdrSdrConversionDeviceDescription' => '由设备的视频硬件转换。速度最快，但色彩取决于设备',
+			'settings.hdrSdrConversionPlayer' => '播放器',
+			'settings.hdrSdrConversionPlayerDescription' => '由播放器转换。色彩一致，但在低端电视盒上 4K 可能卡顿',
 			'settings.deinterlace' => '去隔行',
 			'settings.deinterlaceDescription' => '消除隔行扫描视频中的梳状伪影（仅 mpv 播放器）',
 			'settings.requireProfileSelectionOnOpen' => '打开应用时选择用户资料',
@@ -3509,6 +3537,8 @@ extension on TranslationsZh {
 			'fileInfo.languageCode' => '语言代码',
 			'fileInfo.streamTitle' => '轨道标题',
 			'fileInfo.channels' => '声道',
+			_ => null,
+		} ?? switch (path) {
 			'fileInfo.sampleRate' => '采样率',
 			'fileInfo.spatialAudio' => '空间音频',
 			'fileInfo.textBased' => '基于文本',
@@ -3518,8 +3548,6 @@ extension on TranslationsZh {
 			'fileInfo.externalDelivery' => '可单独提供',
 			'fileInfo.sidecarPath' => '外挂文件路径',
 			'fileInfo.sourceStream' => '复制来源',
-			_ => null,
-		} ?? switch (path) {
 			'fileInfo.temporary' => '临时',
 			'fileInfo.timeBase' => '时间基准',
 			'fileInfo.overallBitrate' => '总比特率',
@@ -3780,6 +3808,8 @@ extension on TranslationsZh {
 			'messages.mediaUnreadableBody' => '服务器找到了此项目，但无法读取其文件（HTTP 404）。文件可能已被移动、删除，或其存储已离线。请联系服务器管理员检查文件并重新扫描媒体库。',
 			'messages.serverBusyTitle' => '视频流不可用',
 			'messages.serverBusyBody' => '服务器持续拒绝传输此文件（HTTP 503）。服务器可能正在重启或正忙，也可能是文件所在的存储设备已离线。请稍后重试；如果问题持续出现，请联系服务器所有者检查服务器和文件存储设备。',
+			'messages.playbackNotAllowedTitle' => '不允许播放',
+			'messages.playbackNotAllowedBody' => '服务器拒绝传输此项目（HTTP 403）。此账户可能没有播放权限，或服务器可能仅允许在其局域网内播放。',
 			'messages.logsUploaded' => '日志已上传',
 			'messages.logsUploadFailed' => '上传日志失败',
 			'messages.logId' => '日志 ID',
@@ -3904,6 +3934,8 @@ extension on TranslationsZh {
 			'connections.addConnectionSubtitleScoped' => ({required Object displayName}) => '添加到 ${displayName}：Plex、Jellyfin、Emby，或其他用户资料的连接',
 			'connections.sessionExpiredOne' => ({required Object name}) => '${name} 的会话已过期',
 			'connections.sessionExpiredMany' => ({required Object count}) => '${count} 个服务器的会话已过期',
+			'connections.accessDeniedOne' => ({required Object name}) => '${name} 拒绝此账户访问',
+			'connections.accessDeniedMany' => ({required Object count}) => '${count} 台服务器拒绝此账户访问',
 			'connections.signInAgain' => '重新登录',
 			'connections.editMediaBrowserTitle' => ({required Object product}) => '编辑 ${product} 连接',
 			'connections.editMediaBrowserIntro' => ({required Object serverName}) => '为 ${serverName} 添加或移除 URL。Plezy 会使用延迟最低且可访问的 URL。',
@@ -4019,6 +4051,8 @@ extension on TranslationsZh {
 			'libraries.emptyingTrash' => ({required Object title}) => '正在清空“${title}”的回收站…',
 			'libraries.trashEmptied' => ({required Object title}) => '已清空“${title}”的回收站',
 			'libraries.failedToEmptyTrash' => ({required Object error}) => '无法清空回收站：${error}',
+			_ => null,
+		} ?? switch (path) {
 			'libraries.analyzing' => ({required Object title}) => '正在分析“${title}”…',
 			'libraries.analysisStarted' => ({required Object title}) => '已开始分析“${title}”',
 			'libraries.failedToAnalyze' => ({required Object error}) => '无法分析媒体库：${error}',
@@ -4032,8 +4066,6 @@ extension on TranslationsZh {
 			'libraries.clearAll' => '全部清除',
 			'libraries.scanLibraryConfirm' => ({required Object title}) => '确定要扫描“${title}”吗？',
 			'libraries.analyzeLibraryConfirm' => ({required Object title}) => '确定要分析“${title}”吗？',
-			_ => null,
-		} ?? switch (path) {
 			'libraries.refreshMetadataConfirm' => ({required Object title}) => '确定要刷新“${title}”的元数据吗？',
 			'libraries.emptyTrashConfirm' => ({required Object title}) => '确定要清空“${title}”的回收站吗？',
 			'libraries.manageLibraries' => '管理媒体库',
@@ -4533,6 +4565,8 @@ extension on TranslationsZh {
 			'watchTogether.guestSwitchUnavailable' => '无法切换 — 服务器不可用于同步',
 			'watchTogether.guestSwitchFailed' => '无法切换 — 在此服务器上未找到内容',
 			'watchTogether.defaultDisplayName' => '用户',
+			_ => null,
+		} ?? switch (path) {
 			'watchTogether.errors.timedOut' => '中继服务器未及时响应',
 			'watchTogether.errors.connectionLost' => '会话准备就绪前连接已断开',
 			'watchTogether.errors.invalidRelayResponse' => '中继服务器返回了意外的响应',
@@ -4546,8 +4580,6 @@ extension on TranslationsZh {
 			'downloads.tracksQueued' => ({required Object count}) => '${count} 首曲目已加入下载队列',
 			'downloads.noDownloads' => '暂无下载',
 			'downloads.noDownloadsDescription' => '下载的内容将在此处显示以供离线观看',
-			_ => null,
-		} ?? switch (path) {
 			'downloads.downloadNow' => '下载',
 			'downloads.deleteDownload' => '删除下载',
 			'downloads.retryDownload' => '重试下载',
@@ -4612,6 +4644,7 @@ extension on TranslationsZh {
 			'downloads.syncRuleAvailable' => '可用',
 			'downloads.syncRuleOffline' => '离线',
 			'downloads.syncRuleSignInRequired' => '需要登录',
+			'downloads.syncRuleAccessDenied' => '访问被拒绝',
 			'downloads.syncRuleNotAvailableForProfile' => '当前用户资料不可用',
 			'downloads.syncRuleUnknownServer' => '未知服务器',
 			'downloads.syncRuleListCreated' => '同步规则已创建',
@@ -4649,8 +4682,14 @@ extension on TranslationsZh {
 			'downloads.unknownAlbum' => '未知专辑',
 			'downloads.completedOfTotal' => ({required Object completed, required Object total}) => '已完成 ${completed}/${total}',
 			'downloads.errorFileNotFound' => '未找到文件（404）',
+			'downloads.errorDownloadNotAllowed' => '服务器不允许下载（403）',
 			'downloads.errorDownloadFailed' => '下载失败',
-			'downloads.errorPostProcessing' => ({required Object error}) => '后处理失败：${error}',
+			'downloads.errorDownloadFailedWithReason' => ({required Object reason}) => '下载失败：${reason}',
+			'downloads.errorHttpStatus' => ({required Object status}) => '下载失败（HTTP ${status}）',
+			'downloads.errorPostProcessing' => ({required Object reason}) => '后处理失败：${reason}',
+			'downloads.reasonFileNotSaved' => '无法将文件保存到此设备',
+			'downloads.reasonCannotResume' => '无法继续未完成的下载',
+			'downloads.reasonDeviceStorageFull' => '此设备的存储空间已满',
 			'downloads.notificationDownloading' => '正在下载…',
 			'downloads.notificationComplete' => '下载完成',
 			'downloads.notificationPaused' => '下载已暂停',
@@ -4760,7 +4799,6 @@ extension on TranslationsZh {
 			'videoSettings.audioNormalization' => '响度标准化',
 			'videoSettings.audioNormalizationDisablesPassthrough' => '将音频解码为 PCM；开启时直通关闭',
 			'videoSettings.audioNormalizationStereoMix' => '将音频解码为立体声混音；开启时直通关闭',
-			'videoSettings.audioDownmix' => '下混为立体声',
 			'performanceOverlay.color' => '颜色',
 			'performanceOverlay.performance' => '性能',
 			'performanceOverlay.buffer' => '缓冲',
@@ -5041,6 +5079,8 @@ extension on TranslationsZh {
 			'addServer.invalidCredentials' => '用户名或密码无效',
 			'addServer.authResponseNotJson' => '身份验证响应不是有效的 JSON',
 			'addServer.authResponseIncomplete' => '服务器返回的登录响应不完整',
+			_ => null,
+		} ?? switch (path) {
 			'addServer.quickConnectRejected' => '服务器拒绝了 Quick Connect',
 			'addServer.quickConnectNotJson' => 'Quick Connect 响应不是有效的 JSON',
 			'addServer.quickConnectMissingFields' => 'Quick Connect 响应中缺少代码或密钥',

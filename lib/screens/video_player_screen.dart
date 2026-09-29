@@ -68,6 +68,7 @@ import '../services/multi_server_manager.dart';
 import '../services/offline_watch_sync_service.dart';
 import '../services/display_mode_service.dart';
 import '../services/media_control_router.dart';
+import '../services/player_sync_offsets.dart';
 import '../services/scoped_player_prefs.dart';
 import '../services/settings_service.dart';
 import '../services/sleep_timer_service.dart';
@@ -723,6 +724,11 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   // Transcode / quality state
   late TranscodeQualityPreset _selectedQualityPreset;
+
+  /// Whether the user picked the quality — at launch ("Play Version…") or in
+  /// the player — rather than playback starting at the saved default. Sticky
+  /// for this screen, so later episodes and retries honor the pick too.
+  bool _qualityPresetExplicit = false;
   int? _selectedAudioStreamId;
   AudioTrack? _preferredAudioTrack;
   SubtitlePreference? _preferredSubtitleTrack;
@@ -908,6 +914,10 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
   /// codecs.
   final TvBackgroundSuspendState _tvSuspend = TvBackgroundSuspendState();
 
+  /// The item a TV background suspend released; its restore reloads only that
+  /// item, never one the viewer moved to while the suspend was settling.
+  MediaItem? _tvSuspendedMetadata;
+
   /// Whether to skip lifecycle actions because PiP is active or about to start.
   /// Apple auto-PiP is system-initiated during the background transition, and
   /// Android auto-PiP on API 26-30 has a brief native transition window before
@@ -918,6 +928,10 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
       (Platform.isAndroid && _androidAutoPipTransitionInFlight);
 
   MediaControlsManager? _mediaControlsManager;
+
+  /// [_initializeServices] ran while the open had already failed and left the
+  /// service layer down; the reload that recovers brings it up.
+  bool _playbackServicesDeferred = false;
   late final MediaControlsScreenController _mediaControls = MediaControlsScreenController(
     manager: () => _mediaControlsManager,
     player: () => player,
@@ -965,6 +979,11 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
   WatchTogetherProvider? _watchTogetherProvider;
   Object? _watchTogetherBinding;
   WatchPlaybackLease? _watchTogetherLease;
+
+  /// The one instance registered as the provider's player media-switch
+  /// owner. Every tear-off of an extension method is a new closure that never
+  /// compares equal, so detach identifies its own registration by this field.
+  late final MediaSwitchCallback _watchTogetherMediaSwitchHandler = _handlePlayerMediaSwitch;
   int _userRateOperation = 0;
   Future<void> _userRateMutation = Future<void>.value();
   Completer<void>? _nativeSeekDrain;
@@ -1014,6 +1033,12 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
   bool get _usesLocalPlaybackSource => _effectiveIsOffline;
 
   bool get _isOfflinePlayback => _offlineLibraryMode || _effectiveIsOffline;
+
+  /// Whether a downloaded copy may stand in for a capped
+  /// [_selectedQualityPreset] (issue #2466). Only the saved startup default
+  /// yields; a picked quality is honored. Watch Together keeps the preset's
+  /// source because a local session does not sync with the room.
+  bool get _downloadOutranksQuality => !_qualityPresetExplicit && _activeWatchTogetherSession() == null;
 
   /// Atomically publish a freshly opened [PlaybackSession] and refine the
   /// selection-intent fields from what the backend actually delivered
@@ -1184,6 +1209,41 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
     _attachToWatchTogetherSession(lease: widget.watchTogetherLease!);
   }
 
+  /// The Windows display-switch hold otherwise runs only behind a real
+  /// display-mode change on entering fullscreen.
+  @visibleForTesting
+  Future<void> debugHoldPlaybackForDisplaySwitchForTesting(Duration delay) =>
+      _holdPlaybackForDisplaySwitch(player!, delay);
+
+  /// The TV background suspend otherwise fires only from its Android TV grace
+  /// timer; the restore then runs from the ordinary resume path.
+  @visibleForTesting
+  Future<void> debugSuspendForTvBackgroundForTesting() => _suspendPlayerForTvBackground();
+
+  /// What a completed startup leaves behind, for tests that seed [player]
+  /// directly instead of running the full open.
+  @visibleForTesting
+  Future<void> debugMarkPlaybackStartedForTesting() async {
+    final settings = await SettingsService.getInstance();
+    _volumeController ??= VideoVolumeController(
+      player: player!,
+      settings: settings,
+      initialVolume: 100,
+      onUserChange: _announceVolumeCommand,
+    );
+    setState(() => _isPlayerInitialized = true);
+    _firstFrame.markReady();
+  }
+
+  @visibleForTesting
+  void debugCompleteVideoForTesting() => _onVideoCompleted(true);
+
+  @visibleForTesting
+  bool get debugPlayNextPromptVisibleForTesting => _episode.showPlayNextDialog;
+
+  @visibleForTesting
+  int get debugAutoPlayCountdownForTesting => _episode.autoPlayCountdown.value;
+
   @visibleForTesting
   Future<bool> debugInterceptEofForTesting() => _eofRecovery.interceptEof(player!);
 
@@ -1219,6 +1279,16 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
   @visibleForTesting
   Future<void> debugInitializeServicesForTesting() => _initializeServices();
 
+  /// Whether the OS media session is up, which the startup flow gives no
+  /// observable sign of without a native media-controls plugin.
+  @visibleForTesting
+  bool get debugMediaControlsActiveForTesting => _mediaControlsManager != null;
+
+  /// The playback start otherwise runs only at the end of player
+  /// initialization, which no widget test finishes without a live native core.
+  @visibleForTesting
+  Future<void> debugStartPlaybackForTesting() => _startPlayback();
+
   /// Adjacency otherwise arrives from the backend's queue containers, which
   /// no widget test stands up; this seeds what [_loadAdjacentEpisodes] would
   /// have committed so an EOF can take the present-next path.
@@ -1252,7 +1322,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
       if (watchTogether != null && watchTogether.isPlaybackLeaseCurrent(launchLease)) {
         _watchTogetherProvider = watchTogether;
         _watchTogetherLease = launchLease;
-        watchTogether.onPlayerMediaSwitched = _handlePlayerMediaSwitch;
+        watchTogether.onPlayerMediaSwitched = _watchTogetherMediaSwitchHandler;
       }
     }
     unawaited(AndroidExitDiagnostics.markUiState(AndroidUiState.player));
@@ -1314,6 +1384,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
     _preferredSubtitleTrack = SubtitlePreference.trackOrNull(widget.preferredSubtitleTrack);
     _preferredSecondarySubtitleTrack = SubtitlePreference.trackOrNull(widget.preferredSecondarySubtitleTrack);
     _selectedQualityPreset = widget.selectedQualityPreset ?? TranscodeQualityPreset.original;
+    _qualityPresetExplicit = widget.selectedQualityPreset != null;
 
     _playNextCancelFocusNode = FocusNode(debugLabel: 'PlayNextCancel');
     _playNextConfirmFocusNode = FocusNode(debugLabel: 'PlayNextConfirm');
@@ -1666,6 +1737,7 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
             transcodeSessionId: _playbackTranscodeSessionId,
           ),
           offlineLibraryMode: false,
+          downloadOutranksQuality: _downloadOutranksQuality,
         );
         // If MPV setup below throws before `_startPlayback` awaits this,
         // tell Dart we've "handled" the future so it's not reported as an
@@ -1728,6 +1800,12 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
       if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
         final dvConversionMode = settingsService.read(SettingsService.dvConversionMode);
         await currentPlayer.setProperty('dv-conversion-mode', dvConversionMode.nativeValue);
+      }
+      // Before the first file, so its opening route is already decided: a
+      // later write would start it on one renderer and move it to the other.
+      if (Platform.isAndroid && !useExoPlayer) {
+        final hdrSdrConversion = settingsService.read(SettingsService.hdrSdrConversion);
+        await currentPlayer.setProperty('hdr-sdr-conversion', hdrSdrConversion.nativeValue);
       }
       if (Platform.isIOS || Platform.isMacOS) {
         await currentPlayer.setProperty('dv-conversion-log', debugLoggingEnabled ? 'yes' : 'no');
@@ -1946,27 +2024,19 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
         }
       }
 
-      final audioSyncOffset = ScopedPlayerPrefs.resolve(ScopedPlayerPrefs.audioSyncOffset, _currentMetadata);
-      if (audioSyncOffset != 0) {
-        final offsetSeconds = audioSyncOffset / 1000.0;
-        await currentPlayer.setProperty('audio-delay', offsetSeconds.toString());
-      }
-
-      final subtitleSyncOffset = ScopedPlayerPrefs.resolve(ScopedPlayerPrefs.subtitleSyncOffset, _currentMetadata);
-      if (subtitleSyncOffset != 0) {
-        final offsetSeconds = subtitleSyncOffset / 1000.0;
-        await currentPlayer.setProperty('sub-delay', offsetSeconds.toString());
-      }
+      await PlayerSyncOffsets.of(currentPlayer).applyFor(_currentMetadata);
 
       if (settingsService.read(SettingsService.audioNormalization)) {
         await currentPlayer.setAudioNormalization(true);
       }
 
-      // After the passthrough apply: downmix wins on both backends (mpv
-      // clears audio-spdif, ExoPlayer force-decodes encoded audio).
-      if (settingsService.read(SettingsService.audioDownmix)) {
-        await currentPlayer.setAudioDownmix(
-          enabled: true,
+      // After the passthrough apply: the stereo limit wins on both backends
+      // (mpv clears audio-spdif, ExoPlayer force-decodes encoded audio). The
+      // 5.1 limit only shapes decoded PCM and leaves passthrough alone.
+      final audioChannelLimit = settingsService.read(SettingsService.audioChannelLimit);
+      if (audioChannelLimit != AudioChannelLimit.original) {
+        await currentPlayer.setAudioChannelLimit(
+          audioChannelLimit,
           centerBoostDb: settingsService.read(SettingsService.downmixCenterBoost),
           normalize: settingsService.read(SettingsService.audioDownmixNormalize),
         );

@@ -311,6 +311,9 @@ class _Translations$settings$kk extends Translations$settings$en {
 	@override String get cellularQualitySameAsDefault => 'Әдепкі сапамен бірдей';
 	@override String get directPlayCoveredQuality => 'Кіші видеоларды түпнұсқа сапада ойнату';
 	@override String get directPlayCoveredQualityDescription => 'Сапа шегіне сәйкес келетін видеоларды транскодтаудың орнына тікелей ойнату';
+	@override String get videoCodecs => 'Бейне кодектері';
+	@override String get videoCodecsDescription => 'Белгіленбеген кодектерді сервер транскодтайды';
+	@override String get videoCodecsAlwaysAccepted => 'Әрқашан қабылданады';
 	@override String get musicQualityTitle => 'Музыка сапасы';
 	@override String get subtitleStyling => 'Субтитр баптаулары';
 	@override String get subtitleStylingDescription => 'Субтитрлердің сыртқы келбетін теңшеу';
@@ -453,8 +456,6 @@ class _Translations$settings$kk extends Translations$settings$en {
 	@override String get audioPassthroughDescription => 'Dolby/DTS дыбысын қайта кодтамай, көлемдік дыбысты сақтап ресиверге немесе теледидарға жіберу. Дыбыс болмаса, өшіріңіз.';
 	@override String get audioPassthroughDescriptionAppleTv => 'Dolby Digital Plus, соның ішінде Atmos үшін Apple-дың өз Dolby декодерін пайдалану. DTS және TrueHD бұрынғыша көпарналы PCM ретінде ойнатылады. Дыбыс болмаса, өшіріңіз.';
 	@override String get audioPassthroughOverriddenByNormalization => 'Дыбыс деңгейін нормалау қосулы кезде өшірулі';
-	@override String get audioDownmix => 'Стереоға түрлендіру (Downmix)';
-	@override String get audioDownmixDescription => 'Көп арналы дыбысты стерео динамиктер үшін екі арнаға төмендету';
 	@override String get downmixCenterBoost => 'Орталық арнаны күшейту';
 	@override String downmixCenterBoostValue({required Object db}) => '${db} дБ';
 	@override String get downmixCenterBoostLabel => 'Күшейту (дБ)';
@@ -471,6 +472,14 @@ class _Translations$settings$kk extends Translations$settings$en {
 	@override String get dvConversionNativeDescription => 'Ішкі DV7 режимін мәжбүрлеу';
 	@override String get dvConversionDv81Description => 'Dolby Vision profile 8.1 форматына түрлендіру';
 	@override String get dvConversionHevcStripDescription => 'Dolby Vision қабаттарын алып тастап, HEVC ретінде көрсету';
+	@override String get hdrSdrConversion => 'HDR-ды SDR-ға түрлендіру';
+	@override String get hdrSdrConversionDescription => 'Дисплей HDR көрсете алмаған кезде HDR бейнесін не түрлендіретінін таңдаңыз.';
+	@override String get hdrSdrConversionAuto => 'Автоматты';
+	@override String get hdrSdrConversionAutoDescription => 'Android 9 және жаңарақ нұсқаларда құрылғы, ескі нұсқаларда ойнатқыш';
+	@override String get hdrSdrConversionDevice => 'Құрылғы';
+	@override String get hdrSdrConversionDeviceDescription => 'Түрлендіруді құрылғының бейне жабдығы орындайды. Ең жылдамы, бірақ түстер құрылғыға байланысты';
+	@override String get hdrSdrConversionPlayer => 'Ойнатқыш';
+	@override String get hdrSdrConversionPlayerDescription => 'Түрлендіруді ойнатқыш орындайды. Түстер тұрақты, бірақ әлсіз ТВ-приставкаларда 4K кідіруі мүмкін';
 	@override String get deinterlace => 'Деинтерлейсинг';
 	@override String get deinterlaceDescription => 'Жоларалық видеодағы тарақ тәрізді артефактілерді жою (тек mpv ойнатқышында)';
 	@override String get requireProfileSelectionOnOpen => 'Ашқанда профильді сұрау';
@@ -966,6 +975,8 @@ class _Translations$messages$kk extends Translations$messages$en {
 	@override String get mediaUnreadableBody => 'Сервер бұл элементті тапты, бірақ оның файлын оқи алмады (HTTP 404). Файл жылжытылған, өшірілген немесе оның сақтау орны қолжетімсіз болуы мүмкін. Сервер иесінен файлды тексеріп, кітапхананы қайта сканерлеуді сұраңыз.';
 	@override String get serverBusyTitle => 'Ағын қолжетімсіз';
 	@override String get serverBusyBody => 'Сервер бұл файлды ағынмен жіберуден қайта-қайта бас тартты (HTTP 503). Ол қайта іске қосылып, бос емес болуы немесе файл сақталған қойма офлайн болуы мүмкін. Сәлден соң қайталап көріңіз — бұл жалғаса берсе, сервер иесінен серверді және файл қоймасын тексеруін сұраңыз.';
+	@override String get playbackNotAllowedTitle => 'Ойнатуға рұқсат жоқ';
+	@override String get playbackNotAllowedBody => 'Сервер бұл элементті ағынмен жіберуден бас тартты (HTTP 403). Тіркелгіңізде оны ойнатуға рұқсат болмауы мүмкін немесе сервер ойнатуға тек өзінің жергілікті желісінде рұқсат беруі мүмкін.';
 	@override String get logsUploaded => 'Журналдар жүктелді';
 	@override String get logsUploadFailed => 'Журналдарды жүктеу мүмкін болмады';
 	@override String get logId => 'Журнал ID-сі';
@@ -1135,6 +1146,8 @@ class _Translations$connections$kk extends Translations$connections$en {
 	@override String addConnectionSubtitleScoped({required Object displayName}) => '${displayName} профиліне қосу: Plex, Jellyfin, Emby немесе басқа қосылым';
 	@override String sessionExpiredOne({required Object name}) => '${name} үшін сеанс мерзімі өтті';
 	@override String sessionExpiredMany({required Object count}) => '${count} сервер үшін сеанс мерзімі өтті';
+	@override String accessDeniedOne({required Object name}) => '${name} бұл тіркелгіге кіруден бас тартты';
+	@override String accessDeniedMany({required Object count}) => '${count} сервер бұл тіркелгіге кіруден бас тартты';
 	@override String get signInAgain => 'Қайтадан кіру';
 	@override String editMediaBrowserTitle({required Object product}) => '${product} қосылымын өңдеу';
 	@override String editMediaBrowserIntro({required Object serverName}) => '${serverName} үшін URL мекенжайларды қосыңыз немесе өшіріңіз. Plezy ең төмен кідірісі бар қолжетімді URL мекенжайды пайдаланады.';
@@ -1831,6 +1844,7 @@ class _Translations$downloads$kk extends Translations$downloads$en {
 	@override String get syncRuleAvailable => 'Қолжетімді';
 	@override String get syncRuleOffline => 'Офлайн';
 	@override String get syncRuleSignInRequired => 'Кіру қажет';
+	@override String get syncRuleAccessDenied => 'Кіруге тыйым салынды';
 	@override String get syncRuleNotAvailableForProfile => 'Ағымдағы профиль үшін қолжетімсіз';
 	@override String get syncRuleUnknownServer => 'Белгісіз сервер';
 	@override String get syncRuleListCreated => 'Синхрондау ережесі жасалды';
@@ -1843,8 +1857,14 @@ class _Translations$downloads$kk extends Translations$downloads$en {
 	@override String get unknownAlbum => 'Белгісіз альбом';
 	@override String completedOfTotal({required Object completed, required Object total}) => '${completed}/${total} аяқталды';
 	@override String get errorFileNotFound => 'Файл табылмады (404)';
+	@override String get errorDownloadNotAllowed => 'Сервер жүктеп алуға рұқсат бермейді (403)';
 	@override String get errorDownloadFailed => 'Жүктеу сәтсіз аяқталды';
-	@override String errorPostProcessing({required Object error}) => 'Кейінгі өңдеу сәтсіз аяқталды: ${error}';
+	@override String errorDownloadFailedWithReason({required Object reason}) => 'Жүктеу сәтсіз аяқталды: ${reason}';
+	@override String errorHttpStatus({required Object status}) => 'Жүктеу сәтсіз аяқталды (HTTP ${status})';
+	@override String errorPostProcessing({required Object reason}) => 'Кейінгі өңдеу сәтсіз аяқталды: ${reason}';
+	@override String get reasonFileNotSaved => 'файлды осы құрылғыда сақтау мүмкін болмады';
+	@override String get reasonCannotResume => 'ішінара жүктеуді жалғастыру мүмкін болмады';
+	@override String get reasonDeviceStorageFull => 'бұл құрылғыда бос орын қалмады';
 	@override String get notificationDownloading => 'Жүктелуде...';
 	@override String get notificationComplete => 'Жүктеу аяқталды';
 	@override String get notificationPaused => 'Жүктеу кідіртілді';
@@ -1923,7 +1943,6 @@ class _Translations$videoSettings$kk extends Translations$videoSettings$en {
 	@override String get audioNormalization => 'Дыбыс деңгейін нормалау';
 	@override String get audioNormalizationDisablesPassthrough => 'Дыбысты PCM-ге декодтайды; бұл қосулы кезде тікелей өткізу өшірулі';
 	@override String get audioNormalizationStereoMix => 'Дыбысты стерео микске декодтайды; бұл қосулы кезде тікелей өткізу өшірулі';
-	@override String get audioDownmix => 'Стереоға түрлендіру';
 }
 
 // Path: performanceOverlay
@@ -3205,6 +3224,9 @@ extension on TranslationsKk {
 			'settings.cellularQualitySameAsDefault' => 'Әдепкі сапамен бірдей',
 			'settings.directPlayCoveredQuality' => 'Кіші видеоларды түпнұсқа сапада ойнату',
 			'settings.directPlayCoveredQualityDescription' => 'Сапа шегіне сәйкес келетін видеоларды транскодтаудың орнына тікелей ойнату',
+			'settings.videoCodecs' => 'Бейне кодектері',
+			'settings.videoCodecsDescription' => 'Белгіленбеген кодектерді сервер транскодтайды',
+			'settings.videoCodecsAlwaysAccepted' => 'Әрқашан қабылданады',
 			'settings.musicQualityTitle' => 'Музыка сапасы',
 			'settings.subtitleStyling' => 'Субтитр баптаулары',
 			'settings.subtitleStylingDescription' => 'Субтитрлердің сыртқы келбетін теңшеу',
@@ -3347,8 +3369,6 @@ extension on TranslationsKk {
 			'settings.audioPassthroughDescription' => 'Dolby/DTS дыбысын қайта кодтамай, көлемдік дыбысты сақтап ресиверге немесе теледидарға жіберу. Дыбыс болмаса, өшіріңіз.',
 			'settings.audioPassthroughDescriptionAppleTv' => 'Dolby Digital Plus, соның ішінде Atmos үшін Apple-дың өз Dolby декодерін пайдалану. DTS және TrueHD бұрынғыша көпарналы PCM ретінде ойнатылады. Дыбыс болмаса, өшіріңіз.',
 			'settings.audioPassthroughOverriddenByNormalization' => 'Дыбыс деңгейін нормалау қосулы кезде өшірулі',
-			'settings.audioDownmix' => 'Стереоға түрлендіру (Downmix)',
-			'settings.audioDownmixDescription' => 'Көп арналы дыбысты стерео динамиктер үшін екі арнаға төмендету',
 			'settings.downmixCenterBoost' => 'Орталық арнаны күшейту',
 			'settings.downmixCenterBoostValue' => ({required Object db}) => '${db} дБ',
 			'settings.downmixCenterBoostLabel' => 'Күшейту (дБ)',
@@ -3365,6 +3385,14 @@ extension on TranslationsKk {
 			'settings.dvConversionNativeDescription' => 'Ішкі DV7 режимін мәжбүрлеу',
 			'settings.dvConversionDv81Description' => 'Dolby Vision profile 8.1 форматына түрлендіру',
 			'settings.dvConversionHevcStripDescription' => 'Dolby Vision қабаттарын алып тастап, HEVC ретінде көрсету',
+			'settings.hdrSdrConversion' => 'HDR-ды SDR-ға түрлендіру',
+			'settings.hdrSdrConversionDescription' => 'Дисплей HDR көрсете алмаған кезде HDR бейнесін не түрлендіретінін таңдаңыз.',
+			'settings.hdrSdrConversionAuto' => 'Автоматты',
+			'settings.hdrSdrConversionAutoDescription' => 'Android 9 және жаңарақ нұсқаларда құрылғы, ескі нұсқаларда ойнатқыш',
+			'settings.hdrSdrConversionDevice' => 'Құрылғы',
+			'settings.hdrSdrConversionDeviceDescription' => 'Түрлендіруді құрылғының бейне жабдығы орындайды. Ең жылдамы, бірақ түстер құрылғыға байланысты',
+			'settings.hdrSdrConversionPlayer' => 'Ойнатқыш',
+			'settings.hdrSdrConversionPlayerDescription' => 'Түрлендіруді ойнатқыш орындайды. Түстер тұрақты, бірақ әлсіз ТВ-приставкаларда 4K кідіруі мүмкін',
 			'settings.deinterlace' => 'Деинтерлейсинг',
 			'settings.deinterlaceDescription' => 'Жоларалық видеодағы тарақ тәрізді артефактілерді жою (тек mpv ойнатқышында)',
 			'settings.requireProfileSelectionOnOpen' => 'Ашқанда профильді сұрау',
@@ -3520,6 +3548,8 @@ extension on TranslationsKk {
 			'fileInfo.languageCode' => 'Тіл коды',
 			'fileInfo.streamTitle' => 'Трек атауы',
 			'fileInfo.channels' => 'Арналар',
+			_ => null,
+		} ?? switch (path) {
 			'fileInfo.sampleRate' => 'Дискретизация жиілігі',
 			'fileInfo.spatialAudio' => 'Кеңістіктік аудио',
 			'fileInfo.textBased' => 'Мәтіндік',
@@ -3529,8 +3559,6 @@ extension on TranslationsKk {
 			'fileInfo.externalDelivery' => 'Бөлек жеткізілуі мүмкін',
 			'fileInfo.sidecarPath' => 'Қосалқы файл жолы',
 			'fileInfo.sourceStream' => 'Көшірілген көзі',
-			_ => null,
-		} ?? switch (path) {
 			'fileInfo.temporary' => 'Уақытша',
 			'fileInfo.timeBase' => 'Уақыт негізі',
 			'fileInfo.overallBitrate' => 'Жалпы биттік жылдамдық',
@@ -3791,6 +3819,8 @@ extension on TranslationsKk {
 			'messages.mediaUnreadableBody' => 'Сервер бұл элементті тапты, бірақ оның файлын оқи алмады (HTTP 404). Файл жылжытылған, өшірілген немесе оның сақтау орны қолжетімсіз болуы мүмкін. Сервер иесінен файлды тексеріп, кітапхананы қайта сканерлеуді сұраңыз.',
 			'messages.serverBusyTitle' => 'Ағын қолжетімсіз',
 			'messages.serverBusyBody' => 'Сервер бұл файлды ағынмен жіберуден қайта-қайта бас тартты (HTTP 503). Ол қайта іске қосылып, бос емес болуы немесе файл сақталған қойма офлайн болуы мүмкін. Сәлден соң қайталап көріңіз — бұл жалғаса берсе, сервер иесінен серверді және файл қоймасын тексеруін сұраңыз.',
+			'messages.playbackNotAllowedTitle' => 'Ойнатуға рұқсат жоқ',
+			'messages.playbackNotAllowedBody' => 'Сервер бұл элементті ағынмен жіберуден бас тартты (HTTP 403). Тіркелгіңізде оны ойнатуға рұқсат болмауы мүмкін немесе сервер ойнатуға тек өзінің жергілікті желісінде рұқсат беруі мүмкін.',
 			'messages.logsUploaded' => 'Журналдар жүктелді',
 			'messages.logsUploadFailed' => 'Журналдарды жүктеу мүмкін болмады',
 			'messages.logId' => 'Журнал ID-сі',
@@ -3915,6 +3945,8 @@ extension on TranslationsKk {
 			'connections.addConnectionSubtitleScoped' => ({required Object displayName}) => '${displayName} профиліне қосу: Plex, Jellyfin, Emby немесе басқа қосылым',
 			'connections.sessionExpiredOne' => ({required Object name}) => '${name} үшін сеанс мерзімі өтті',
 			'connections.sessionExpiredMany' => ({required Object count}) => '${count} сервер үшін сеанс мерзімі өтті',
+			'connections.accessDeniedOne' => ({required Object name}) => '${name} бұл тіркелгіге кіруден бас тартты',
+			'connections.accessDeniedMany' => ({required Object count}) => '${count} сервер бұл тіркелгіге кіруден бас тартты',
 			'connections.signInAgain' => 'Қайтадан кіру',
 			'connections.editMediaBrowserTitle' => ({required Object product}) => '${product} қосылымын өңдеу',
 			'connections.editMediaBrowserIntro' => ({required Object serverName}) => '${serverName} үшін URL мекенжайларды қосыңыз немесе өшіріңіз. Plezy ең төмен кідірісі бар қолжетімді URL мекенжайды пайдаланады.',
@@ -4030,6 +4062,8 @@ extension on TranslationsKk {
 			'libraries.emptyingTrash' => ({required Object title}) => '"${title}" себеті тазалануда...',
 			'libraries.trashEmptied' => ({required Object title}) => '"${title}" себеті тазаланды',
 			'libraries.failedToEmptyTrash' => ({required Object error}) => 'Себетті тазалау мүмкін болмады: ${error}',
+			_ => null,
+		} ?? switch (path) {
 			'libraries.analyzing' => ({required Object title}) => '"${title}" талдануда...',
 			'libraries.analysisStarted' => ({required Object title}) => '"${title}" үшін талдау басталды',
 			'libraries.failedToAnalyze' => ({required Object error}) => 'Талдау жасау мүмкін болмады: ${error}',
@@ -4043,8 +4077,6 @@ extension on TranslationsKk {
 			'libraries.clearAll' => 'Барлығын тазалау',
 			'libraries.scanLibraryConfirm' => ({required Object title}) => '"${title}" кітапханасын сканерлегіңіз келе ме?',
 			'libraries.analyzeLibraryConfirm' => ({required Object title}) => '"${title}" кітапханасына талдау жасағыңыз келе ме?',
-			_ => null,
-		} ?? switch (path) {
 			'libraries.refreshMetadataConfirm' => ({required Object title}) => '"${title}" метадеректерін жаңартасыз ба?',
 			'libraries.emptyTrashConfirm' => ({required Object title}) => '"${title}" себетін тазалайсыз ба?',
 			'libraries.manageLibraries' => 'Кітапханаларды басқару',
@@ -4544,6 +4576,8 @@ extension on TranslationsKk {
 			'watchTogether.guestSwitchUnavailable' => 'Ауысу мүмкін болмады — сервер синхрондау үшін қолжетімсіз',
 			'watchTogether.guestSwitchFailed' => 'Ауысу мүмкін болмады — мазмұн табылмады',
 			'watchTogether.defaultDisplayName' => 'Пайдаланушы',
+			_ => null,
+		} ?? switch (path) {
 			'watchTogether.errors.timedOut' => 'Реле сервері уақытында жауап бермеді',
 			'watchTogether.errors.connectionLost' => 'Сеанс дайын болмай тұрып байланыс үзілді',
 			'watchTogether.errors.invalidRelayResponse' => 'Реле сервері күтпеген жауап жіберді',
@@ -4557,8 +4591,6 @@ extension on TranslationsKk {
 			'downloads.tracksQueued' => ({required Object count}) => '${count} ән жүктеу кезегіне қосылды',
 			'downloads.noDownloads' => 'Әлі де жүктеулер жоқ',
 			'downloads.noDownloadsDescription' => 'Жүктелген файлдар офлайн көру үшін мұнда көрінеді',
-			_ => null,
-		} ?? switch (path) {
 			'downloads.downloadNow' => 'Жүктеу',
 			'downloads.deleteDownload' => 'Жүктеуді өшіру',
 			'downloads.retryDownload' => 'Жүктеуді қайталау',
@@ -4623,6 +4655,7 @@ extension on TranslationsKk {
 			'downloads.syncRuleAvailable' => 'Қолжетімді',
 			'downloads.syncRuleOffline' => 'Офлайн',
 			'downloads.syncRuleSignInRequired' => 'Кіру қажет',
+			'downloads.syncRuleAccessDenied' => 'Кіруге тыйым салынды',
 			'downloads.syncRuleNotAvailableForProfile' => 'Ағымдағы профиль үшін қолжетімсіз',
 			'downloads.syncRuleUnknownServer' => 'Белгісіз сервер',
 			'downloads.syncRuleListCreated' => 'Синхрондау ережесі жасалды',
@@ -4660,8 +4693,14 @@ extension on TranslationsKk {
 			'downloads.unknownAlbum' => 'Белгісіз альбом',
 			'downloads.completedOfTotal' => ({required Object completed, required Object total}) => '${completed}/${total} аяқталды',
 			'downloads.errorFileNotFound' => 'Файл табылмады (404)',
+			'downloads.errorDownloadNotAllowed' => 'Сервер жүктеп алуға рұқсат бермейді (403)',
 			'downloads.errorDownloadFailed' => 'Жүктеу сәтсіз аяқталды',
-			'downloads.errorPostProcessing' => ({required Object error}) => 'Кейінгі өңдеу сәтсіз аяқталды: ${error}',
+			'downloads.errorDownloadFailedWithReason' => ({required Object reason}) => 'Жүктеу сәтсіз аяқталды: ${reason}',
+			'downloads.errorHttpStatus' => ({required Object status}) => 'Жүктеу сәтсіз аяқталды (HTTP ${status})',
+			'downloads.errorPostProcessing' => ({required Object reason}) => 'Кейінгі өңдеу сәтсіз аяқталды: ${reason}',
+			'downloads.reasonFileNotSaved' => 'файлды осы құрылғыда сақтау мүмкін болмады',
+			'downloads.reasonCannotResume' => 'ішінара жүктеуді жалғастыру мүмкін болмады',
+			'downloads.reasonDeviceStorageFull' => 'бұл құрылғыда бос орын қалмады',
 			'downloads.notificationDownloading' => 'Жүктелуде...',
 			'downloads.notificationComplete' => 'Жүктеу аяқталды',
 			'downloads.notificationPaused' => 'Жүктеу кідіртілді',
@@ -4771,7 +4810,6 @@ extension on TranslationsKk {
 			'videoSettings.audioNormalization' => 'Дыбыс деңгейін нормалау',
 			'videoSettings.audioNormalizationDisablesPassthrough' => 'Дыбысты PCM-ге декодтайды; бұл қосулы кезде тікелей өткізу өшірулі',
 			'videoSettings.audioNormalizationStereoMix' => 'Дыбысты стерео микске декодтайды; бұл қосулы кезде тікелей өткізу өшірулі',
-			'videoSettings.audioDownmix' => 'Стереоға түрлендіру',
 			'performanceOverlay.color' => 'Түс',
 			'performanceOverlay.performance' => 'Өнімділік',
 			'performanceOverlay.buffer' => 'Буфер',
@@ -5052,6 +5090,8 @@ extension on TranslationsKk {
 			'addServer.invalidCredentials' => 'Пайдаланушы аты немесе құпия сөз қате',
 			'addServer.authResponseNotJson' => 'Аутентификация жауабы жарамды JSON болмады',
 			'addServer.authResponseIncomplete' => 'Сервердің кіру жауабы толық емес',
+			_ => null,
+		} ?? switch (path) {
 			'addServer.quickConnectRejected' => 'Сервер Quick Connect сұрауын қабылдамады',
 			'addServer.quickConnectNotJson' => 'Quick Connect жауабы жарамды JSON болмады',
 			'addServer.quickConnectMissingFields' => 'Quick Connect жауабында код немесе құпия кілт жоқ',

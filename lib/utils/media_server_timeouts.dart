@@ -56,10 +56,27 @@ class MediaServerTimeouts {
   /// sum of phases.
   static const perServerConnect = Duration(milliseconds: 6500);
 
-  /// Per-phase HTTP timeout for Plex tune and MediaBrowser Live TV
+  /// How long the startup splash waits for the initial bind when the OS
+  /// reports no network. The bind still runs — `none` leaves loopback and
+  /// LAN-without-WAN servers reachable (#2505) — but an airplane-mode launch
+  /// must not sit through [perServerConnect]. Past the cap the offline shell
+  /// opens and the bind keeps going, so a server that connects later still
+  /// brings the app online.
+  static const noNetworkStartupBind = Duration(seconds: 2);
+
+  /// How long a caller waits for a Plex tune or a MediaBrowser Live TV
   /// PlaybackInfo that opens a source. Matches Plex web's value: a cold
   /// tuner can take longer than the default 10s to return response headers.
+  ///
+  /// Only the wait: the request itself runs to [tuneTransport]. Servers finish
+  /// opening a tuner whether or not the client is still connected (#2394), so
+  /// the tune's answer must still arrive to be released.
   static const tune = Duration(seconds: 30);
+
+  /// Per-phase HTTP timeout for a tune request, and for closing what one
+  /// opened (the close queues behind other opens on the server). Bounds a dead
+  /// connection, not the user's wait — see [tune].
+  static const tuneTransport = Duration(minutes: 3);
 
   static const plexTvConnect = Duration(seconds: 15);
 
