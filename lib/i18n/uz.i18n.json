@@ -372,6 +372,8 @@
     "dvConversionNativeDescription": "Ichki DV7 rejimini majburlash",
     "dvConversionDv81Description": "Dolby Vision profile 8.1 formatiga oʻtkazish",
     "dvConversionHevcStripDescription": "Dolby Vision qatlamlarini olib tashlash va HEVC sifatida koʻrsatish",
+    "disableDolbyVision": "Dolby Vision'ni oʻchirish",
+    "disableDolbyVisionDescription": "Faylda boʻlsa, Dolby Vision oʻrniga HDR10 yoki HLG qatlamini ijro etish",
     "hdrSdrConversion": "HDR'ni SDR'ga aylantirish",
     "hdrSdrConversionDescription": "Displey HDR'ni ko‘rsata olmaganda HDR videoni nima aylantirishini tanlang.",
     "hdrSdrConversionAuto": "Avtomatik",
@@ -2006,6 +2008,13 @@
     "rotation": "Aylanish",
     "dvSource": "DV manbasi",
     "dvPath": "DV yoʻli",
+    "dvRouteDecoder": "",
+    "dvRouteDecoderP81": "",
+    "dvRouteBaseLayer": "",
+    "dvRouteBaseLayerHdr10": "",
+    "dvRouteBaseLayerHlg": "",
+    "dvRouteBaseLayerSdr": "",
+    "dvRouteReshaped": "",
     "p7Conversion": "P7 oʻtkazmasi",
     "sampleRate": "Diskretlash chastotasi",
     "pixelFormat": "Piksel formati",
@@ -2235,6 +2244,10 @@
       "simkl": "Simkl",
       "seerr": "Seerr",
       "mdblist": "MDBList"
+    },
+    "simklReconnect": {
+      "title": "",
+      "subtitle": ""
     },
     "deviceCode": {
       "title": "Plezy-ni ${service} xizmatida faollashtiring",

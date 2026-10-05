@@ -379,6 +379,8 @@
     "dvConversionNativeDescription": "Force native DV7 and suppress DV conversion retry",
     "dvConversionDv81Description": "Force inline RPU conversion to Dolby Vision profile 8.1",
     "dvConversionHevcStripDescription": "Strip Dolby Vision RPU/EL layers and present plain HEVC",
+    "disableDolbyVision": "Disable Dolby Vision",
+    "disableDolbyVisionDescription": "Play the file's HDR10 or HLG layer instead of Dolby Vision, when it has one",
     "hdrSdrConversion": "HDR to SDR Conversion",
     "hdrSdrConversionDescription": "Choose what converts HDR video when the display can't show HDR.",
     "hdrSdrConversionAuto": "Auto",
@@ -2013,6 +2015,13 @@
     "rotation": "Rotation",
     "dvSource": "DV Source",
     "dvPath": "DV Path",
+    "dvRouteDecoder": "Dolby Vision decoder",
+    "dvRouteDecoderP81": "Dolby Vision decoder (P7→8.1)",
+    "dvRouteBaseLayer": "Base layer",
+    "dvRouteBaseLayerHdr10": "HDR10 base layer",
+    "dvRouteBaseLayerHlg": "HLG base layer",
+    "dvRouteBaseLayerSdr": "SDR base layer",
+    "dvRouteReshaped": "RPU reshaped (gpu-next)",
     "p7Conversion": "P7 Conv",
     "sampleRate": "Sample Rate",
     "pixelFormat": "Pixel Fmt",
@@ -2242,6 +2251,10 @@
       "simkl": "Simkl",
       "seerr": "Seerr",
       "mdblist": "MDBList"
+    },
+    "simklReconnect": {
+      "title": "Reconnect Simkl",
+      "subtitle": "Simkl is retiring the sign-in method this connection uses. Reconnecting opens simkl.com to approve Plezy — Plezy never sees your password. Your watch history stays on Simkl."
     },
     "deviceCode": {
       "title": "Activate Plezy on ${service}",

@@ -662,6 +662,12 @@ class SettingsService extends BaseSharedPreferencesService {
     values: DvConversionModePreference.values,
     defaultValue: DvConversionModePreference.auto,
   );
+
+  /// Play Dolby Vision files as the HDR10/HLG base layer they carry, so a TV
+  /// that mishandles Dolby Vision never receives it (#2543). Android mpv and
+  /// Apple TV only; Profile 5 has no base layer and stays Dolby Vision on
+  /// Android.
+  static const disableDolbyVision = BoolPref('disable_dolby_vision');
   static const hdrSdrConversion = EnumPref<HdrSdrConversion>(
     'hdr_sdr_conversion',
     values: HdrSdrConversion.values,
@@ -841,7 +847,9 @@ class SettingsService extends BaseSharedPreferencesService {
 
   static final maxVolume = IntPref('max_volume', defaultValue: 100, transform: (v) => v.clamp(100, 300));
   static final downmixCenterBoost = IntPref('downmix_center_boost', transform: (v) => v.clamp(0, 12));
-  static final subtitlePosition = IntPref('subtitle_position', defaultValue: 100, transform: (v) => v.clamp(0, 100));
+  // mpv's sub-pos range: values above 100 move subtitles further down than
+  // their default bottom margin (#2331). ExoPlayer still caps at 100.
+  static final subtitlePosition = IntPref('subtitle_position', defaultValue: 100, transform: (v) => v.clamp(0, 150));
   static final defaultPlaybackSpeed = DoublePref(
     'default_playback_speed',
     defaultValue: 1.0,
@@ -1389,6 +1397,7 @@ class SettingsService extends BaseSharedPreferencesService {
     matchContentResolution,
     tunneledPlayback,
     dvConversionMode,
+    disableDolbyVision,
     hdrSdrConversion,
     musicVolume,
     resumeMusicOnLaunch,
@@ -1538,7 +1547,8 @@ class SettingsService extends BaseSharedPreferencesService {
     'auto_skip_delay' => (1, 30),
     'subtitle_font_size' => (10, 80),
     'subtitle_border_size' => (0, 5),
-    'subtitle_position' || 'subtitle_background_opacity' || 'music_volume' => (0, 100),
+    'subtitle_position' => (0, 150),
+    'subtitle_background_opacity' || 'music_volume' => (0, 100),
     'volume' => (0, 300),
     'max_volume' => (100, 300),
     'downmix_center_boost' => (0, 12),
