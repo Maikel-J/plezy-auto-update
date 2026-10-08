@@ -1795,6 +1795,8 @@
     "noDownloadsTree": "No downloads",
     "pauseAll": "Pause all",
     "resumeAll": "Resume all",
+    "retryAll": "Retry all",
+    "retryFailed": "Retry failed downloads",
     "deleteAll": "Delete all",
     "selectVersion": "Select Version",
     "allEpisodes": "All episodes",
