@@ -38,9 +38,31 @@ import '../navigation/navigation_tabs.dart';
 import '../utils/platform_detector.dart';
 import 'trackers/tracker_constants.dart';
 import '../profiles/profile.dart';
+import '../theme/mono_theme.dart' show MonoPalette;
 import '../watch_together/services/watch_together_relay_endpoint.dart';
 
-enum ThemeMode { system, light, dark, oled }
+/// The app theme. Value names are the persisted ids. [system] follows the
+/// platform between [light] and [dark]; every other value is one fixed palette,
+/// [custom] the one stored in [SettingsService.customThemePalette].
+enum ThemeMode {
+  system,
+  light,
+  dark,
+  oled,
+  ember,
+  glacier,
+  forest,
+  plum,
+  paper,
+  custom;
+
+  /// The presets and Custom are Supporter perks; the built-ins are free in
+  /// every build.
+  bool get isSupporterPerk => switch (this) {
+    system || light || dark || oled => false,
+    ember || glacier || forest || plum || paper || custom => true,
+  };
+}
 
 /// Library density is now an int 1–5 (1 = most compact, 5 = most comfortable).
 /// Default is 3.
@@ -188,6 +210,26 @@ extension PlaybackBufferTierNativeValue on PlaybackBufferTier {
   };
 }
 
+/// What mpv does with interlaced video. mpv-only by design: ExoPlayer has no
+/// filter chain.
+///
+/// [video] is mpv's `deinterlace=auto` (#2149): content flagged interlaced
+/// is deinterlaced, one frame per field. [film] is the fork's
+/// `deinterlace=ivtc` (#2710): like [video], except that interlaced 29.97 or
+/// 30 fps video is treated as telecined film and rebuilt into its original
+/// 23.976 or 24 fps frames. That makes video shot at field rate (sports,
+/// concerts) stutter, so it is opt-in and Live TV keeps [video].
+enum DeinterlaceMode { off, video, film }
+
+extension DeinterlaceModeMpvValue on DeinterlaceMode {
+  /// The mpv `deinterlace` option value.
+  String get mpvValue => switch (this) {
+    DeinterlaceMode.off => 'no',
+    DeinterlaceMode.video => 'auto',
+    DeinterlaceMode.film => 'ivtc',
+  };
+}
+
 const String _bufferSizeMigratedKey = 'buffer_size_migrated_to_auto';
 const String _legacyBufferSizeKey = 'buffer_size';
 const String _legacyDemuxerModeKey = 'demuxer_mode';
@@ -197,6 +239,7 @@ const String _legacyUseExoPlayerKey = 'use_exoplayer';
 const String _legacyAutoSkipIntroKey = 'auto_skip_intro';
 const String _legacyAutoSkipCreditsKey = 'auto_skip_credits';
 const String _legacyAudioDownmixKey = 'audio_downmix';
+const String _legacyDeinterlaceKey = 'deinterlace';
 
 /// Migrates from the legacy enum-string format and clamps to 1..5.
 class _LibraryDensityPref extends Pref<int> {
@@ -614,6 +657,11 @@ class SettingsService extends BaseSharedPreferencesService {
   /// [subtitleUseMargins] instead.
   static const subtitleAnchorToScreen = BoolPref('subtitle_anchor_to_screen');
   static const cleanedOldImageCache = BoolPref('cleaned_old_image_cache');
+
+  /// Last confirmed Supporter entitlement on this device. Runtime state owned
+  /// by `SupporterService`: never exported, never reset, and only cleared on a
+  /// confirmed revocation so an unreachable store cannot lock perks.
+  static const supporterEntitlementCached = BoolPref('supporter_entitlement_cached');
   static const rememberTrackSelections = BoolPref('remember_track_selections', defaultValue: true);
 
   /// Episode advance follows the server's per-episode audio/subtitle
@@ -631,6 +679,7 @@ class SettingsService extends BaseSharedPreferencesService {
     _legacyAutoSkipIntroKey: skipIntroMode,
     _legacyAutoSkipCreditsKey: skipCreditsMode,
     _legacyAudioDownmixKey: audioChannelLimit,
+    _legacyDeinterlaceKey: deinterlaceMode,
   };
 
   static const forceSkipMarkerFallback = BoolPref('force_skip_marker_fallback');
@@ -744,9 +793,15 @@ class SettingsService extends BaseSharedPreferencesService {
   /// device-local runtime state, so reset-only in the registry.
   static const rememberedBrightnessLevel = DoublePref('remembered_brightness_level', defaultValue: -1.0);
 
-  /// Deinterlace interlaced video via mpv's `deinterlace=auto` (#2149).
-  /// mpv-only by design: ExoPlayer has no filter chain.
-  static const deinterlace = BoolPref('deinterlace');
+  /// Replaced the `deinterlace` toggle: on → [DeinterlaceMode.video].
+  static const deinterlaceMode = LegacyBoolEnumPref<DeinterlaceMode>(
+    'deinterlace_mode',
+    legacyKey: _legacyDeinterlaceKey,
+    values: DeinterlaceMode.values,
+    defaultValue: DeinterlaceMode.off,
+    legacyTrue: DeinterlaceMode.video,
+    legacyFalse: DeinterlaceMode.off,
+  );
 
   /// Remembered state of the player's always-on-top toggle (#931). The window
   /// flag itself is only held while a player is open; this pref re-applies it
@@ -891,6 +946,16 @@ class SettingsService extends BaseSharedPreferencesService {
     'theme_mode',
     values: ThemeMode.values,
     defaultValueProvider: _tvAwareThemeModeDefault,
+  );
+
+  /// The Custom theme's colours, or null until the theme editor first saves
+  /// one. A partial or corrupt stored value also reads as null (Custom then
+  /// paints the [themeMode] default) instead of a palette with made-up colours.
+  static final customThemePalette = JsonPref<MonoPalette?>(
+    'custom_theme_palette',
+    defaultValue: null,
+    encode: (palette) => json.encode(palette?.toJson()),
+    decode: (raw) => raw == null ? null : MonoPalette.fromJson(raw),
   );
   static const videoPlayerNavigationEnabled = BoolPref(
     'video_player_navigation_enabled',
@@ -1410,7 +1475,7 @@ class SettingsService extends BaseSharedPreferencesService {
     gesturePinchToZoom,
     rememberBrightnessLevel,
     directPlayCoveredQuality,
-    deinterlace,
+    deinterlaceMode,
     playerAlwaysOnTop,
     specialsOrdering,
     useExoPlayer,
@@ -1449,6 +1514,7 @@ class SettingsService extends BaseSharedPreferencesService {
     syncOffsetScope,
     scopedPlayerPrefValues,
     themeMode,
+    customThemePalette,
     videoPlayerNavigationEnabled,
     playbackBufferTier,
     libraryDensity,
