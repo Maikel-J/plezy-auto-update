@@ -18,6 +18,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import com.edde746.mpv.*
+import com.edde746.plezy.NativeModuleCache
 import com.edde746.plezy.exoplayer.DoviBridge
 import com.edde746.plezy.shared.AudioFocusManager
 import com.edde746.plezy.shared.FrameRateManager
@@ -467,6 +468,10 @@ class MpvPlayerCore private constructor(
   }
 
   private val nativeFailure = AtomicReference<Exception?>()
+
+  /** What condemned this session, once something has; see [condemnSession]. */
+  internal val sessionFailure: Exception? get() = nativeFailure.get()
+
   private val nativeOwnershipLock = Any()
 
   @Volatile private var videoSurfaceGeneration = 0L
@@ -1103,6 +1108,8 @@ class MpvPlayerCore private constructor(
               created
             }
           }
+          // libmpv and FFmpeg are loaded by now; see NativeModuleCache.
+          NativeModuleCache.invalidate()
           if (demuxerBudget != null) {
             appliedDemuxerBudget = demuxerBudget
             steadyDemuxerBudget = demuxerBudget
