@@ -238,10 +238,10 @@ class UpdateService {
   }
 
   /// Parse version string into list of integers
-  /// Handles versions like "1.2.3+4" by taking only the numeric parts
+  /// Ignores build metadata, including dotted suffixes such as "+android.1".
   static List<int> _parseVersionParts(String version) {
-    return version.split('.').map((p) {
-      final numPart = p.split('+').first.split('-').first;
+    return version.split('+').first.split('.').map((p) {
+      final numPart = p.split('-').first;
       return int.tryParse(numPart) ?? 0;
     }).toList();
   }

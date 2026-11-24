@@ -149,6 +149,60 @@ void main() {
     expect(update?['latestVersion'], '2.19.0');
   });
 
+  group('Android release tags with dotted build metadata', () {
+    setUp(() {
+      PackageInfo.setMockInitialValues(
+        appName: 'Plezy',
+        packageName: 'com.edde746.plezy',
+        version: '2.23.0',
+        buildNumber: '154',
+        buildSignature: '',
+      );
+    });
+
+    tearDown(() {
+      PackageInfo.setMockInitialValues(
+        appName: 'Plezy',
+        packageName: 'com.plezy.test',
+        version: '1.0.0',
+        buildNumber: '1',
+        buildSignature: '',
+      );
+    });
+
+    for (final (tag, isNewer) in [
+      ('v2.22.0+android.1', false),
+      ('v2.23.0+android.1', false),
+      ('v2.24.0+android.1', true),
+    ]) {
+      test('checks $tag against installed 2.23.0', () async {
+        final releaseUrl = 'https://github.com/Maikel-J/plezy-auto-update/releases/tag/$tag';
+        final client = MediaServerHttpClient(
+          client: MockClient(
+            (_) async => http.Response(
+              jsonEncode({'tag_name': tag, 'html_url': releaseUrl, 'published_at': '2026-11-24T00:00:00Z'}),
+              200,
+              headers: {'content-type': 'application/json'},
+            ),
+          ),
+        );
+        addTearDown(client.close);
+
+        final update = await UpdateService.debugPerformUpdateCheck(
+          respectCooldown: false,
+          client: client,
+          throwOnFailure: true,
+        );
+        if (isNewer) {
+          expect(update?['latestVersion'], tag.substring(1));
+          expect(update?['releaseUrl'], releaseUrl);
+        } else {
+          expect(update, isNull);
+        }
+      });
+    }
+  });
+
   test('draft and prerelease responses are ignored', () async {
     for (final flag in ['draft', 'prerelease']) {
       final client = MediaServerHttpClient(
