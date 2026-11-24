@@ -330,7 +330,7 @@ jobs:
           git -C "$GITHUB_WORKSPACE" grep -q 'ANDROID_UPDATE_REPOSITORY' -- lib/services/update_service.dart
           git -C "$GITHUB_WORKSPACE" grep -q 'AndroidUpdateAsset.select' -- lib/services/update_service.dart
           git -C "$GITHUB_WORKSPACE" grep -q 'downloadAndInstall' -- lib/utils/update_dialog.dart
-          git -C "$GITHUB_WORKSPACE" grep -q 'appUpdateChannel.attach' -- android/app/src/main/kotlin/com/edde746/plezy/MainActivity.kt
+          git -C "$GITHUB_WORKSPACE" grep -q 'appUpdateChannel.attach' -- android/app/src/main/kotlin/com/edde746/plezy/PlezyActivity.kt
           git -C "$GITHUB_WORKSPACE" grep -q 'SIGNATURE_MISMATCH' -- android/app/src/main/kotlin/com/edde746/plezy/AppUpdateChannel.kt
           git -C "$GITHUB_WORKSPACE" grep -q 'android.permission.REQUEST_INSTALL_PACKAGES' -- android/app/src/sideload/AndroidManifest.xml
 
