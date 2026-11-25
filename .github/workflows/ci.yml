@@ -184,7 +184,7 @@ jobs:
       - name: Run full Android JVM suite
         working-directory: android
         env:
-          JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://repo.maven.apache.org/maven2
+          JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://maven-central.storage-download.googleapis.com/maven2/
         run: |
           set -euo pipefail
           if ! ./gradlew :app:testDebugUnitTest :saf_util:testDebugUnitTest :libass:testDebugUnitTest -x :app:compileFlutterBuildDebug --continue; then
