@@ -247,6 +247,21 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/android-release-key.jks"
 
+      - name: Checkout trusted release compatibility check
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify signed APKs can upgrade published 2.23.0
+        env:
+          SIGNED_ASSETS: ${{ runner.temp }}/android-release-signed
+        run: |
+          python3 -B scripts/release/check_upgrade_compatibility.py \
+            --assets "$SIGNED_ASSETS" \
+            --apksigner "$ANDROID_HOME/build-tools/36.1.0/apksigner" \
+            --apkanalyzer "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+
       - name: Preserve signed release assets
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

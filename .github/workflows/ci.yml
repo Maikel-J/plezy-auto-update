@@ -69,6 +69,9 @@ jobs:
       - name: Verify generated source required by Android
         run: scripts/codegen.sh --check
 
+      - name: Test signed upgrade compatibility guard
+        run: python3 -B -m unittest discover -s scripts/release -p test_upgrade_compatibility.py
+
       - name: Run Android updater Dart tests
         run: flutter test test/services/android_update_service_test.dart test/services/update_service_test.dart
 
