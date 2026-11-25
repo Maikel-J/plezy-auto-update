@@ -247,6 +247,21 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/android-release-key.jks"
 
+      - name: Checkout trusted release compatibility check
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify signed APKs can upgrade published 2.23.0
+        env:
+          SIGNED_ASSETS: ${{ runner.temp }}/android-release-signed
+        run: |
+          python3 -B scripts/release/check_upgrade_compatibility.py \
+            --assets "$SIGNED_ASSETS" \
+            --apksigner "$ANDROID_HOME/build-tools/36.1.0/apksigner" \
+            --apkanalyzer "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+
       - name: Preserve signed release assets
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -330,7 +345,7 @@ jobs:
           git -C "$GITHUB_WORKSPACE" grep -q 'ANDROID_UPDATE_REPOSITORY' -- lib/services/update_service.dart
           git -C "$GITHUB_WORKSPACE" grep -q 'AndroidUpdateAsset.select' -- lib/services/update_service.dart
           git -C "$GITHUB_WORKSPACE" grep -q 'downloadAndInstall' -- lib/utils/update_dialog.dart
-          git -C "$GITHUB_WORKSPACE" grep -q 'appUpdateChannel.attach' -- android/app/src/main/kotlin/com/edde746/plezy/MainActivity.kt
+          git -C "$GITHUB_WORKSPACE" grep -q 'appUpdateChannel.attach' -- android/app/src/main/kotlin/com/edde746/plezy/PlezyActivity.kt
           git -C "$GITHUB_WORKSPACE" grep -q 'SIGNATURE_MISMATCH' -- android/app/src/main/kotlin/com/edde746/plezy/AppUpdateChannel.kt
           git -C "$GITHUB_WORKSPACE" grep -q 'android.permission.REQUEST_INSTALL_PACKAGES' -- android/app/src/sideload/AndroidManifest.xml
 

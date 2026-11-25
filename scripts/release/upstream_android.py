@@ -189,7 +189,7 @@ def verify_updater() -> None:
     checks = {
         "lib/services/update_service.dart": ["ANDROID_UPDATE_REPOSITORY", "AndroidUpdateAsset.select"],
         "lib/utils/update_dialog.dart": ["downloadAndInstall"],
-        "android/app/src/main/kotlin/com/edde746/plezy/MainActivity.kt": ["appUpdateChannel.attach"],
+        "android/app/src/main/kotlin/com/edde746/plezy/PlezyActivity.kt": ["appUpdateChannel.attach"],
         "android/app/src/main/kotlin/com/edde746/plezy/AppUpdateChannel.kt": ["installUpdate", "SIGNATURE_MISMATCH"],
         "android/app/src/sideload/AndroidManifest.xml": ["android.permission.REQUEST_INSTALL_PACKAGES"],
     }

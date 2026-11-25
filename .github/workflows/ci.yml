@@ -24,7 +24,7 @@ jobs:
   android-ci:
     name: Android release checks
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
       contents: read
     steps:
@@ -69,6 +69,9 @@ jobs:
       - name: Verify generated source required by Android
         run: scripts/codegen.sh --check
 
+      - name: Test signed upgrade compatibility guard
+        run: python3 -B -m unittest discover -s scripts/release -p test_upgrade_compatibility.py
+
       - name: Run Android updater Dart tests
         run: flutter test test/services/android_update_service_test.dart test/services/update_service_test.dart
 
@@ -90,3 +93,44 @@ jobs:
       - name: Check Android API compatibility
         working-directory: android
         run: ./gradlew :app:lintDebug
+
+      - name: Assemble release APKs and verify updater packaging
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.repository == 'Maikel-J/plezy-auto-update'
+        run: |
+          set -euo pipefail
+          # Candidate builds use neither the production key nor release permissions.
+          test ! -e android/key.properties
+          python3 -B -c 'import sys; sys.path.insert(0, "scripts/release"); import upstream_android; upstream_android.verify_updater()'
+          flutter build apk --release --split-per-abi \
+            --dart-define=ENABLE_UPDATE_CHECK=true \
+            --dart-define=ANDROID_UPDATE_REPOSITORY="$GITHUB_REPOSITORY" \
+            --dart-define=GIT_COMMIT="$(git rev-parse HEAD)"
+          export APKANALYZER="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          test -x "$APKANALYZER"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import xml.etree.ElementTree as ET
+
+          android = '{http://schemas.android.com/apk/res/android}'
+          app_id = 'com.edde746.plezy'
+          for abi in ('arm64-v8a', 'armeabi-v7a', 'x86_64'):
+              apk = Path(f'build/app/outputs/flutter-apk/app-{abi}-release.apk')
+              if not apk.is_file() or not apk.stat().st_size:
+                  raise SystemExit(f'Missing release APK: {apk}')
+              manifest = ET.fromstring(subprocess.check_output(
+                  [os.environ['APKANALYZER'], 'manifest', 'print', str(apk)], text=True,
+              ))
+              permissions = {p.get(android + 'name') for p in manifest.findall('uses-permission')}
+              providers = [p for p in manifest.findall('application/provider')
+                           if p.get(android + 'authorities') == app_id + '.updates']
+              if manifest.get('package') != app_id:
+                  raise SystemExit(f'Unexpected Android app ID in {apk}')
+              if 'android.permission.REQUEST_INSTALL_PACKAGES' not in permissions:
+                  raise SystemExit(f'Missing updater installation permission in {apk}')
+              if (len(providers) != 1 or providers[0].get(android + 'exported') != 'false'
+                      or providers[0].get(android + 'grantUriPermissions') != 'true'):
+                  raise SystemExit(f'Missing or invalid updater file provider in {apk}')
+              print(f'Verified {apk}: {app_id}, installer permission, and private updater file provider')
+          PY
