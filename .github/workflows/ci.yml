@@ -126,6 +126,9 @@ jobs:
 
       - name: Run Android JVM unit tests
         working-directory: android
+        env:
+          # Robolectric's default Maven Central hostname returned HTTP 429 in CI.
+          JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://repo.maven.apache.org/maven2
         run: ./gradlew :app:testDebugUnitTest :saf_util:testDebugUnitTest :libass:testDebugUnitTest -x :app:compileFlutterBuildDebug --continue
 
       - name: Check Android API compatibility
