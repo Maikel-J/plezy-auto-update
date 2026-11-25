@@ -127,6 +127,46 @@ def discover(plan_path: Path) -> None:
     print(f"Selected {UPSTREAM} {plan['upstream_tag']} -> {plan['release_tag']}")
 
 
+def resolve_226_conflicts(upstream_sha: str, conflicts: set[str]) -> set[str]:
+    """Keep the Android fork's workflow policy during the reviewed 2.26.0 merge."""
+    if upstream_sha != "671a0d7b7bf7dacf37dc4a6086b6a9c0734904f7":
+        return conflicts
+    keep_fork = {".github/workflows/build.yml", ".github/workflows/ci.yml"}
+    removed = ".github/workflows/update-packages.yml"
+    analyzer = "analysis_options.yaml"
+    known = keep_fork | {removed, analyzer} | GENERATED_TRANSLATIONS
+    if conflicts - known:
+        return conflicts
+    if analyzer in conflicts:
+        ours = run("git", "show", f":2:{analyzer}").stdout
+        theirs = run("git", "show", f":3:{analyzer}").stdout
+        base = run("git", "show", f":1:{analyzer}").stdout
+        fork_excludes = (
+            "    # Vendored packages have separate dev-dependency analyzer contexts.\n"
+            "    - packages/**/pigeons/**\n"
+            "    - packages/**/test/**\n"
+        )
+        upstream_exclude = (
+            "    # Nested git worktrees (other branches' full checkouts), when present.\n"
+            "    - worktrees/**\n"
+        )
+        if (ours.count(fork_excludes) != 1 or theirs.count(upstream_exclude) != 1
+                or ours.replace(fork_excludes, "", 1) != base
+                or theirs.replace(upstream_exclude, "", 1) != base):
+            return conflicts
+        Path(analyzer).write_text(ours.replace(fork_excludes, upstream_exclude + fork_excludes, 1))
+        git("add", "--", analyzer)
+    for path in sorted(conflicts & keep_fork):
+        git("checkout", "--ours", "--", path)
+        git("add", "--", path)
+    if removed in conflicts:
+        stages = git("ls-files", "-u", "--", removed).splitlines()
+        if {entry.split()[2] for entry in stages} != {"1", "3"}:
+            raise ValueError("Expected the fork to have intentionally removed update-packages.yml")
+        git("rm", "--", removed)
+    return set(filter(None, git("diff", "--name-only", "--diff-filter=U").splitlines()))
+
+
 def prepare(plan_path: Path) -> None:
     plan = json.loads(plan_path.read_text())
     tag_ref = f"refs/tags/{plan['release_tag']}"
@@ -149,6 +189,9 @@ def prepare(plan_path: Path) -> None:
         merge = run("git", "merge", "--no-commit", "--no-ff", upstream_sha, check=False)
         if merge.returncode:
             conflicts = set(filter(None, git("diff", "--name-only", "--diff-filter=U").splitlines()))
+            if not conflicts:
+                raise RuntimeError(f"Upstream merge failed without merge conflicts:\n{merge.stderr}")
+            conflicts = resolve_226_conflicts(upstream_sha, conflicts)
             unexpected = conflicts - GENERATED_TRANSLATIONS
             if unexpected:
                 raise RuntimeError(
@@ -156,13 +199,12 @@ def prepare(plan_path: Path) -> None:
                     + "\n".join(sorted(conflicts))
                     + f"\n{merge.stderr}"
                 )
-            if not conflicts:
-                raise RuntimeError(f"Upstream merge failed without merge conflicts:\n{merge.stderr}")
             # These files are generated from the merged translation sources. Take
             # upstream's generated snapshots only to finish the merge; codegen runs
             # immediately afterwards and regenerates the authoritative output.
-            run("git", "checkout", "--theirs", "--", *sorted(conflicts))
-            run("git", "add", "--", *sorted(conflicts))
+            if conflicts:
+                run("git", "checkout", "--theirs", "--", *sorted(conflicts))
+                run("git", "add", "--", *sorted(conflicts))
         pubspec = Path("pubspec.yaml")
         text = pubspec.read_text()
         match = re.search(r"(?m)^version: ([^\s+]+)\+(\d+)\s*$", text)
