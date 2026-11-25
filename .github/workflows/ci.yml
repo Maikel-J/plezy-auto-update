@@ -41,12 +41,12 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          cp scripts/release/upstream_android.py "$RUNNER_TEMP/plezy-rehearsal.py"
           git checkout --detach '64cfabe6dfc02b0e2b6e188e39bbf4867d40ed9d'
           test "$(git rev-parse HEAD)" = '64cfabe6dfc02b0e2b6e188e39bbf4867d40ed9d'
           git fetch --no-tags https://github.com/edde746/plezy.git refs/tags/2.26.0
           test "$(git rev-parse 'FETCH_HEAD^{commit}')" = '671a0d7b7bf7dacf37dc4a6086b6a9c0734904f7'
           test "$(git show FETCH_HEAD:pubspec.yaml | grep '^version:' | cut -d' ' -f2 | cut -d+ -f1)" = '2.26.0'
-          cp scripts/release/upstream_android.py "$RUNNER_TEMP/plezy-rehearsal.py"
           cat > "$RUNNER_TEMP/plezy-rehearsal.json" <<'JSON'
           {"repository":"Maikel-J/plezy-auto-update","upstream_repository":"edde746/plezy","upstream_release_id":438618389,"upstream_tag":"2.26.0","upstream_published_at":"2026-11-09T01:46:46Z","upstream_url":"https://github.com/edde746/plezy/releases/tag/2.26.0","version":"2.26.0","release_tag":"v2.26.0+android.1","previous_build":158}
           JSON
@@ -102,6 +102,10 @@ jobs:
           scripts/codegen.sh
           python3 "$RUNNER_TEMP/plezy-rehearsal.py" commit-source --plan "$RUNNER_TEMP/plezy-rehearsal.json"
           git merge-base --is-ancestor '671a0d7b7bf7dacf37dc4a6086b6a9c0734904f7' HEAD
+          diff -u <(git ls-tree --name-only -r HEAD .github/workflows | sort) <(printf '%s\n' .github/workflows/{build,ci,sync-upstream,upstream-android}.yml | sort)
+          grep -F -- '- worktrees/**' analysis_options.yaml
+          grep -F -- '- packages/**/pigeons/**' analysis_options.yaml
+          grep -F -- '- packages/**/test/**' analysis_options.yaml
 
       - name: Verify generated source required by Android
         run: scripts/codegen.sh --check
