@@ -124,12 +124,12 @@ jobs:
           cmake --build build/android-host-tests --parallel 2
           ctest --test-dir build/android-host-tests --output-on-failure --no-tests=error
 
-      - name: Run Android JVM unit tests
+      - name: Run production updater JVM tests
         working-directory: android
         env:
           # Robolectric's default Maven Central hostname returned HTTP 429 in CI.
           JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://repo.maven.apache.org/maven2
-        run: ./gradlew :app:testDebugUnitTest :saf_util:testDebugUnitTest :libass:testDebugUnitTest -x :app:compileFlutterBuildDebug --continue
+        run: ./gradlew :app:testDebugUnitTest --tests 'com.edde746.plezy.AppUpdateChannelTest' -x :app:compileFlutterBuildDebug
 
       - name: Check Android API compatibility
         working-directory: android
@@ -180,3 +180,24 @@ jobs:
                   raise SystemExit(f'Missing or invalid updater file provider in {apk}')
               print(f'Verified {apk}: {app_id}, installer permission, and private updater file provider')
           PY
+
+      - name: Run full Android JVM suite
+        working-directory: android
+        env:
+          JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://repo.maven.apache.org/maven2
+        run: |
+          set -euo pipefail
+          if ! ./gradlew :app:testDebugUnitTest :saf_util:testDebugUnitTest :libass:testDebugUnitTest -x :app:compileFlutterBuildDebug --continue; then
+            python3 - <<'PY'
+          import pathlib
+          import xml.etree.ElementTree as ET
+          reports = pathlib.Path('../build').glob('*/test-results/testDebugUnitTest/TEST-*.xml')
+          for report in reports:
+              suite = ET.parse(report).getroot()
+              for case in suite.findall('testcase'):
+                  for failure in case.findall('failure'):
+                      print(case.get('classname'), case.get('name'))
+                      print((failure.text or failure.get('message') or '')[:4500])
+          PY
+            exit 1
+          fi
