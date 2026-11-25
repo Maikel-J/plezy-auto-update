@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
+import '../media/chapter_marker_classifier.dart';
 import '../media/artist_discography.dart';
 import '../media/download_resolution.dart';
 import '../media/episode_collection.dart';
@@ -1859,7 +1860,7 @@ class PlexClient
               parseResponse: parseResponse,
             );
       final metadataJson = _getFirstMetadataJsonFromData(data);
-      final extras = _parsePlaybackExtrasFromMetadataJson(
+      final extras = await _parsePlaybackExtrasFromMetadataJson(
         metadataJson,
         introPattern: introPattern,
         creditsPattern: creditsPattern,
@@ -1903,13 +1904,14 @@ class PlexClient
     return _getFirstMetadataJsonFromData(data);
   }
 
-  PlaybackExtras _parsePlaybackExtrasFromMetadataJson(
+  Future<PlaybackExtras> _parsePlaybackExtrasFromMetadataJson(
     Map<String, dynamic>? metadataJson, {
     String? introPattern,
     String? creditsPattern,
     bool forceChapterFallback = false,
-  }) => plexPlaybackExtrasFromCacheJson(
+  }) async => plexPlaybackExtrasFromCacheJson(
     metadataJson,
+    classifier: await ChapterMarkerClassifier.bundled,
     introPattern: introPattern,
     creditsPattern: creditsPattern,
     forceChapterFallback: forceChapterFallback,
@@ -2733,7 +2735,7 @@ class PlexClient
     );
   }
 
-  /// Scan/refresh a library section to detect new files
+  @override
   Future<void> scanLibrary(String sectionId) async {
     await _getWithFailover('/library/sections/$sectionId/refresh');
   }
@@ -3530,17 +3532,12 @@ class PlexClient
   /// Full-series fallback for episode navigation when Plex `/playQueues`
   /// creation is unavailable. Grandchildren includes watched episodes; sort
   /// locally per [SettingsService.specialsOrdering]. Under `respectServer`
-  /// the faithful reproduction of the server queue this fallback replaces is
-  /// the aired interleave — Plex's own `/allLeaves` order — so that mode maps
-  /// to [SpecialsOrdering.airDate] here.
+  /// that is Specials-last, the order of the server queue this fallback
+  /// replaces (Plex Web's continuous show queue, #2770).
   @override
   Future<List<MediaItem>?> fetchClientSideEpisodeQueue(String seriesId) async {
     final episodes = await fetchPlayableDescendants(seriesId);
-    final ordering = effectiveSpecialsOrdering();
-    sortEpisodesByWatchOrder(
-      episodes,
-      ordering: ordering == SpecialsOrdering.respectServer ? SpecialsOrdering.airDate : ordering,
-    );
+    sortEpisodesByWatchOrder(episodes);
     return episodes;
   }
 

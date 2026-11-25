@@ -29,10 +29,7 @@ class SystemShelfService {
   static SystemShelfService? _testingInstance;
   factory SystemShelfService() => _testingInstance ?? _instance;
 
-  SystemShelfService._internal() : _channelOverride = null, _supportOverride = null, _tvosTargetOverride = null {
-    _androidChannel.setMethodCallHandler(_handleMethodCall);
-    _tvosChannel.setMethodCallHandler(_handleMethodCall);
-  }
+  SystemShelfService._internal() : _channelOverride = null, _supportOverride = null, _tvosTargetOverride = null;
 
   @visibleForTesting
   SystemShelfService.forTesting({
@@ -75,9 +72,6 @@ class SystemShelfService {
     _mutationTail = Future<void>.value();
   }
 
-  /// Callback for warm-start launcher surface taps.
-  ValueChanged<String>? onShelfItemTap;
-
   /// Whether this process targets the tvOS Top Shelf (as opposed to the
   /// Android Watch Next row). Decides artwork geometry and which native
   /// surface receives server sources.
@@ -94,21 +88,6 @@ class SystemShelfService {
     if (_isTvosTarget) return _tvosChannel;
     return null;
   }
-
-  Future<dynamic> _handleMethodCall(MethodCall call) async {
-    if (call.method != 'onWatchNextTap' && call.method != 'onShelfItemTap') {
-      return null;
-    }
-    final args = call.arguments;
-    final contentId = args is Map ? args['contentId'] as String? : null;
-    final callback = onShelfItemTap;
-    if (contentId == null || callback == null) return false;
-    callback(contentId);
-    return true;
-  }
-
-  @visibleForTesting
-  Future<dynamic> handleMethodCallForTesting(MethodCall call) => _handleMethodCall(call);
 
   /// Establishes the only owner allowed to publish launcher shelf state.
   ///
@@ -191,18 +170,6 @@ class SystemShelfService {
     return null;
   }
 
-  /// Get a pending deep link from cold start (consumed on first call).
-  Future<String?> getInitialDeepLink() async {
-    final channel = _channel;
-    if (channel == null) return null;
-    return _invokeGuarded<String>(
-      channel,
-      'getInitialDeepLink',
-      label: 'System shelf initial deep link failed',
-      failureLabel: 'Failed to get system shelf initial deep link',
-    );
-  }
-
   /// Check whether the current platform has a launcher shelf integration.
   Future<bool> isSupported() async {
     final override = _supportOverride;
@@ -224,6 +191,7 @@ class SystemShelfService {
     List<MediaItem> continueWatchingItems,
     MediaServerClient Function(ServerId serverId) getClientForServerId, {
     bool hideSpoilers = false,
+    EpisodePosterMode episodePosterMode = EpisodePosterMode.seriesPoster,
   }) async {
     final channel = _channel;
     if (channel == null || _activeOwner != profileId) return false;
@@ -231,7 +199,12 @@ class SystemShelfService {
 
     final items = continueWatchingItems
         .map((item) {
-          return _convertToShelfItem(item, getClientForServerId, hideSpoilers: hideSpoilers);
+          return _convertToShelfItem(
+            item,
+            getClientForServerId,
+            hideSpoilers: hideSpoilers,
+            episodePosterMode: episodePosterMode,
+          );
         })
         .toList(growable: false);
     if (!_owns(profileId, generation)) return false;
@@ -275,7 +248,11 @@ class SystemShelfService {
   /// Publish live server connection sources to the tvOS Top Shelf extension so
   /// it can fetch Continue Watching itself. tvOS-only: Android's Watch Next
   /// row is refreshed by the app process instead, so this is a no-op there.
-  Future<bool> syncServerSources(String profileId, List<MediaServerClient> clients) async {
+  Future<bool> syncServerSources(
+    String profileId,
+    List<MediaServerClient> clients, {
+    EpisodePosterMode episodePosterMode = EpisodePosterMode.seriesPoster,
+  }) async {
     if (!_isTvosTarget) return false;
     final channel = _channel;
     if (channel == null || _activeOwner != profileId) return false;
@@ -291,6 +268,7 @@ class SystemShelfService {
               'servers': servers,
               'maxItems': 20,
               'sectionTitle': t.discover.continueWatching,
+              'episodePoster': episodePosterMode == EpisodePosterMode.seasonPoster ? 'season' : 'series',
             }),
             label: 'Failed to update system shelf sources',
             severe: true,
@@ -299,6 +277,13 @@ class SystemShelfService {
     });
     return result ?? false;
   }
+
+  /// The Top Shelf fills 2:3 poster slots, so an episode shows its season
+  /// poster only when that is the viewer's episode poster setting. Every
+  /// other setting gets the series poster, as in Plex's own client (#2377):
+  /// an episode still cannot fill a poster slot.
+  static EpisodePosterMode _topShelfPosterMode(EpisodePosterMode mode) =>
+      mode == EpisodePosterMode.seasonPoster ? EpisodePosterMode.seasonPoster : EpisodePosterMode.seriesPoster;
 
   /// Backend-specific escape hatch: the Top Shelf extension talks to servers
   /// directly, which needs the raw connection credentials the neutral
@@ -349,7 +334,8 @@ class SystemShelfService {
   Map<String, dynamic> _convertToShelfItem(
     MediaItem item,
     MediaServerClient Function(ServerId serverId) getClientForServerId, {
-    bool hideSpoilers = false,
+    required bool hideSpoilers,
+    required EpisodePosterMode episodePosterMode,
   }) {
     final contentId = _buildContentId(serverIdOrNull(item.serverId), item.id);
 
@@ -359,10 +345,10 @@ class SystemShelfService {
         final client = getClientForServerId(ServerId(item.serverId!));
         String? thumbPath;
         if (_isTvosTarget) {
-          // The Top Shelf renders 2:3 posters via the season -> series -> own
-          // thumb chain. Posters cannot spoil, so the spoiler-safe override
-          // does not apply here.
-          thumbPath = item.posterThumb(mode: EpisodePosterMode.seasonPoster);
+          // The Top Shelf renders 2:3 posters: the series (or season) poster
+          // chain, then the item's own thumb. Posters cannot spoil, so the
+          // spoiler-safe override does not apply here.
+          thumbPath = item.posterThumb(mode: _topShelfPosterMode(episodePosterMode));
           if (thumbPath != null) {
             posterSourceUri = client.thumbnailUrl(thumbPath, width: 600, height: 900);
           }

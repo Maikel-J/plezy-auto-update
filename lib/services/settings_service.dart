@@ -2,6 +2,7 @@ import 'dart:convert';
 import '../media/ids.dart';
 import '../media/playback_rate.dart';
 import '../media/media_version_preference.dart';
+import '../media/media_source_info.dart' show PlaybackExtras;
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
@@ -109,20 +110,22 @@ enum EpisodeAction { play, details }
 /// How Specials (season 0) are placed in the episode watch order — the
 /// sequence auto-advance, offline next/prev, and "download next N" walk.
 enum SpecialsOrdering {
-  /// Follow the backend's own ordering: Plex builds its server-side show
-  /// queue from `/allLeaves` (aired order, Specials interleaved); Jellyfin's
-  /// `/Shows/{id}/Episodes` order is preserved as returned (Specials placed
-  /// only by explicit `AirsBefore*` metadata, per the server-wide
-  /// `DisplaySpecialsWithinSeasons` setting). Client-side selections with no
-  /// server order (offline queue, downloads, offline OnDeck) fall back to
-  /// Specials-last.
+  /// Follow the backend's own ordering: Plex builds the show queue the way
+  /// Plex Web does (a continuous queue: regular seasons in season/episode
+  /// order, then Specials); Jellyfin's `/Shows/{id}/Episodes` order is
+  /// preserved as returned (Specials placed only by explicit `AirsBefore*`
+  /// metadata, per the server-wide `DisplaySpecialsWithinSeasons` setting).
+  /// Client-side selections with no server order (offline queue, downloads,
+  /// offline OnDeck) fall back to Specials-last.
   respectServer,
 
   /// Interleave Specials between regular episodes by air date on every
-  /// surface (#1416), the way Plex's own play queue orders a show.
+  /// surface (#1416). Plex builds the show queue from `/allLeaves`, which
+  /// PMS orders purely by air date.
   airDate,
 
   /// Specials strictly after the regular seasons on every surface (#1952).
+  /// On Plex this is the same continuous queue as [respectServer].
   specialsLast,
 }
 
@@ -624,8 +627,8 @@ class _PreferenceGroupListenable extends ChangeNotifier {
 }
 
 class SettingsService extends BaseSharedPreferencesService {
-  static const String defaultIntroPattern = r'(?:^|\b)(?:intro(?:duction)?|opening)(?:\b|$)|^op(?:\s?\d+)?$';
-  static const String defaultCreditsPattern = r'(?:^|\b)(?:outro|credits?|ending)(?:\b|$)|^ed(?:\s?\d+)?$';
+  static const String defaultIntroPattern = PlaybackExtras.defaultIntroPattern;
+  static const String defaultCreditsPattern = PlaybackExtras.defaultCreditsPattern;
 
   static const enableDebugLogging = BoolPref('enable_debug_logging', onWrite: setLoggerLevel);
   static const crashReporting = BoolPref('crash_reporting', defaultValue: true);
@@ -1697,13 +1700,7 @@ class SettingsService extends BaseSharedPreferencesService {
         throw const FormatException('Expected a six-digit hex color');
       }
     }
-    if (pref == startupSection &&
-        ![
-          NavigationTabId.discover,
-          NavigationTabId.libraries,
-          NavigationTabId.liveTv,
-          NavigationTabId.search,
-        ].contains(value)) {
+    if (pref == startupSection && !startupSectionTabs.contains(value)) {
       throw const FormatException('Unsupported startup section');
     }
     if (pref is StringListPref) {
