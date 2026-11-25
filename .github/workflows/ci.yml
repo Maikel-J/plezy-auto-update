@@ -22,7 +22,8 @@ env:
 
 jobs:
   android-ci:
-    name: Android release checks
+    name: Android 2.25.0 release rehearsal
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'dot/verify-plezy-2-25-0' && github.repository == 'Maikel-J/plezy-auto-update'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -32,6 +33,33 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      - name: Prepare exact upstream 2.25.0 without publishing
+        id: prepare_release
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge-base --is-ancestor '24e1d15236244e0ea0be9b0699af3b4b1ef774ba' HEAD
+          git fetch --no-tags https://github.com/edde746/plezy.git refs/tags/2.25.0
+          test "$(git rev-parse 'FETCH_HEAD^{commit}')" = 'c30493435ca98e7f521b89ecd8d096484d237c57'
+          test "$(git show FETCH_HEAD:pubspec.yaml | grep '^version:' | cut -d' ' -f2 | cut -d+ -f1)" = '2.25.0'
+          cp scripts/release/upstream_android.py "$RUNNER_TEMP/plezy-rehearsal.py"
+          cat > "$RUNNER_TEMP/plezy-rehearsal.json" <<'JSON'
+          {"repository":"Maikel-J/plezy-auto-update","upstream_repository":"edde746/plezy","upstream_release_id":425209501,"upstream_tag":"2.25.0","upstream_published_at":"2026-10-27T09:04:18Z","upstream_url":"https://github.com/edde746/plezy/releases/tag/2.25.0","version":"2.25.0","release_tag":"v2.25.0+android.1","previous_build":156}
+          JSON
+          python3 "$RUNNER_TEMP/plezy-rehearsal.py" prepare --plan "$RUNNER_TEMP/plezy-rehearsal.json"
+          python3 - "$RUNNER_TEMP/plezy-rehearsal.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          plan = json.loads(Path(sys.argv[1]).read_text())
+          assert plan['upstream_sha'] == 'c30493435ca98e7f521b89ecd8d096484d237c57', plan
+          assert not plan.get('retry_tag'), plan
+          assert plan['version'] == '2.25.0', plan
+          print(f"Verified upstream source {plan['upstream_sha']}, Android build {plan['build_number']}")
+          PY
 
       - name: Setup Java
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
@@ -43,7 +71,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
-          flutter-version: ${{ env.FLUTTER_VERSION }}
+          flutter-version: ${{ steps.prepare_release.outputs.flutter_version }}
           cache: true
           pub-cache: false
 
@@ -65,6 +93,13 @@ jobs:
 
       - name: Install locked dependencies
         run: flutter pub get --enforce-lockfile --no-example
+
+      - name: Regenerate and commit release source in the runner
+        run: |
+          set -euo pipefail
+          scripts/codegen.sh
+          python3 "$RUNNER_TEMP/plezy-rehearsal.py" commit-source --plan "$RUNNER_TEMP/plezy-rehearsal.json"
+          git merge-base --is-ancestor 'c30493435ca98e7f521b89ecd8d096484d237c57' HEAD
 
       - name: Verify generated source required by Android
         run: scripts/codegen.sh --check
@@ -122,6 +157,8 @@ jobs:
               permissions = {p.get(android + 'name') for p in manifest.findall('uses-permission')}
               providers = [p for p in manifest.findall('application/provider')
                            if p.get(android + 'authorities') == app_id + '.updates']
+              if manifest.get(android + 'versionName') != '2.25.0':
+                  raise SystemExit(f'Unexpected Android version name in {apk}')
               if manifest.get('package') != app_id:
                   raise SystemExit(f'Unexpected Android app ID in {apk}')
               if 'android.permission.REQUEST_INSTALL_PACKAGES' not in permissions:
