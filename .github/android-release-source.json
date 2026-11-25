@@ -1,0 +1,14 @@
+{
+  "repository": "Maikel-J/plezy-auto-update",
+  "upstream_repository": "edde746/plezy",
+  "upstream_release_id": 419838405,
+  "upstream_tag": "2.24.0",
+  "upstream_published_at": "2026-10-21T17:38:15Z",
+  "upstream_url": "https://github.com/edde746/plezy/releases/tag/2.24.0",
+  "version": "2.24.0",
+  "release_tag": "v2.24.0+android.1",
+  "previous_build": 154,
+  "fork_base_sha": "64cfabe6dfc02b0e2b6e188e39bbf4867d40ed9d",
+  "upstream_sha": "76498a6f183e9c69709462928fcc4f1bb447799b",
+  "build_number": 156
+}
