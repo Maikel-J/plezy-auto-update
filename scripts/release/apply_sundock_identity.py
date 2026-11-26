@@ -146,6 +146,80 @@ def remove_legacy_launcher_art(manifest: str) -> None:
         file.unlink()
 
 
+
+def isolate_diagnostics() -> None:
+    service = "lib/services/log_upload_service.dart"
+    replace(service, "import 'plezy_server.dart';\n", "")
+    replace(service,
+            "/// Plezy server endpoint that returns a short, quotable Log ID.\n"
+            "const String logUploadEndpoint = '$plezyServerBaseUrl/logs';",
+            "/// No hosted diagnostics endpoint is configured for this build.\n"
+            "const String logUploadEndpoint = '';\n"
+            "const bool diagnosticsUploadAvailable = logUploadEndpoint != '';")
+    replace(service, "  final response = await (client ?? httpClient).post(",
+            """  if (!diagnosticsUploadAvailable) {
+    throw UnsupportedError('Hosted diagnostics are disabled in this build.');
+  }
+  final response = await (client ?? httpClient).post(""")
+    logs = "lib/screens/settings/logs_screen.dart"
+    replace(logs, "                              FocusableAction(\n"
+                  "                                icon: Symbols.upload_rounded,",
+            "                              if (diagnosticsUploadAvailable)\n"
+            "                                FocusableAction(\n"
+            "                                  icon: Symbols.upload_rounded,")
+    startup = "lib/widgets/startup_failure_view.dart"
+    replace(startup, "                  FocusableButton(\n"
+                     "                    onPressed: enabled ? () => _uploadDetails() : null,",
+            "                  if (diagnosticsUploadAvailable)\n"
+            "                    FocusableButton(\n"
+            "                      onPressed: enabled ? () => _uploadDetails() : null,")
+    main = Path("lib/main.dart")
+    main_source = main.read_text()
+    dsn = [line for line in main_source.splitlines() if line.startswith("const String _sentryDsn = ")]
+    if len(dsn) != 1 or "@bugs.plezy.app/" not in dsn[0]:
+        raise ValueError("Unexpected upstream crash reporting configuration")
+    replace(str(main), dsn[0], "const String _sentryDsn = '';")
+    replace(str(main), "const bool _enableSentry = bool.fromEnvironment('ENABLE_SENTRY', defaultValue: false);",
+            "const bool _enableSentry = false;")
+
+    path = Path("test/screens/settings/logs_screen_test.dart")
+    tests = path.read_text()
+    begin = tests.index("  testWidgets('long upload capability displays and copies at narrow width'")
+    end = tests.index("  group('previous startup failure'", begin)
+    block = tests[begin:end]
+    block = block.replace("long upload capability displays and copies at narrow width",
+                          "diagnostics stay local and Copy works at narrow width")
+    decl = block.index("    const capability")
+    stop = block.index("    String? clipboardText;", decl)
+    block = block[:decl] + "    var networkRequests = 0;\n" + block[stop:]
+    mock = block.index("        uploadedRequest = request;")
+    mock_end = block.index("      }),", mock)
+    block = block[:mock] + """        networkRequests++;
+        return http.Response('', 500);
+""" + block[mock_end:]
+    actions = block.index("    await tester.tap(find.byTooltip(t.logs.uploadLogs));")
+    block = block[:actions] + """    expect(find.byTooltip(t.logs.uploadLogs), findsNothing);
+    await tester.tap(find.byTooltip(t.logs.copyLogs));
+    await tester.pumpAndSettle();
+    expect(clipboardText, contains('widget upload seed'));
+    await expectLater(uploadDiagnosticText('test-only', client: client), throwsUnsupportedError);
+    expect(networkRequests, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+"""
+    path.write_text(tests[:begin] + block + tests[end:])
+    replace(str(path), "enables upload and copy with a record but an empty log buffer",
+            "enables copy with a record but an empty log buffer")
+    replace(str(path), "[t.logs.uploadLogs, t.logs.copyLogs, t.logs.clearLogs]",
+            "[t.logs.copyLogs, t.logs.clearLogs]")
+    replace("test/widgets/startup_failure_view_test.dart",
+            "    expect(find.byKey(startupFailureRestartKey), findsNothing);",
+            "    expect(find.byKey(startupFailureRestartKey), findsNothing);\n"
+            "    expect(find.byKey(startupFailureUploadKey), findsNothing);\n"
+            "    expect(find.byKey(startupFailureCopyKey), findsOneWidget);")
+
+
 def apply_identity() -> None:
     gradle = "android/app/build.gradle.kts"
     manifest = "android/app/src/main/AndroidManifest.xml"
@@ -169,6 +243,7 @@ def apply_identity() -> None:
     update_runtime_identity()
     apply_about_brand()
     remove_legacy_launcher_art(manifest)
+    isolate_diagnostics()
     for name, dimensions in (("sundock_launcher", (108, 108, 100)), ("sundock_tv_banner", (320, 180, 178))):
         output = Path("android/app/src/main/res/drawable") / f"{name}.xml"
         output.parent.mkdir(parents=True, exist_ok=True)

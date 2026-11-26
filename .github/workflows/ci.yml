@@ -129,7 +129,8 @@ jobs:
         run: |
           flutter test --dart-define=ANDROID_UPDATE_REPOSITORY=Maikel-J/plezy-auto-update \
             test/services/deep_links test/widgets/deep_link_dialog_test.dart \
-            test/services/android_update_service_test.dart test/services/update_service_test.dart
+            test/services/android_update_service_test.dart test/services/update_service_test.dart \
+            test/screens/settings/logs_screen_test.dart test/widgets/startup_failure_view_test.dart
 
       - name: Inventory remaining old branding and upstream integrations
         run: |
