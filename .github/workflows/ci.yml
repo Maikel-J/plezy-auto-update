@@ -179,6 +179,7 @@ jobs:
           import os
           from pathlib import Path
           import subprocess
+          import zipfile
           import xml.etree.ElementTree as ET
 
           android = '{http://schemas.android.com/apk/res/android}'
@@ -191,6 +192,14 @@ jobs:
               manifest = ET.fromstring(subprocess.check_output(
                   [os.environ['APKANALYZER'], 'manifest', 'print', str(apk)], text=True,
               ))
+              with zipfile.ZipFile(apk) as archive:
+                  packaged = set(archive.namelist())
+              flutter_assets = 'assets/flutter_assets/assets/'
+              if flutter_assets + 'sundock_brand.svg' not in packaged:
+                  raise SystemExit(f'Missing replacement Flutter logo in {apk}')
+              if any(flutter_assets + old in packaged for old in
+                     ('plezy.png', 'plezy_adaptive_foreground.svg')):
+                  raise SystemExit(f'Legacy Flutter logo is still bundled in {apk}')
               permissions = {p.get(android + 'name') for p in manifest.findall('uses-permission')}
               providers = [p for p in manifest.findall('application/provider')
                            if p.get(android + 'authorities') == app_id + '.updates']

@@ -97,8 +97,20 @@ def apply_about_brand() -> None:
             "import 'package:flutter/material.dart';\nimport 'package:flutter_svg/flutter_svg.dart';")
     replace(about, "Image.asset('assets/plezy.png', width: 80, height: 80)",
             "SvgPicture.asset('assets/sundock_brand.svg', width: 80, height: 80)")
-    replace("pubspec.yaml", "    - assets/plezy.png",
-            "    - assets/plezy.png\n    - assets/sundock_brand.svg")
+    auth = "lib/screens/auth_screen.dart"
+    replace(auth, "import 'package:flutter/material.dart';",
+            "import 'package:flutter/material.dart';\nimport 'package:flutter_svg/flutter_svg.dart';")
+    for path, old, new in [
+        (auth, "Image.asset('assets/plezy.png',", "SvgPicture.asset('assets/sundock_brand.svg',"),
+        ("lib/main.dart", "SvgPicture.asset('assets/plezy_adaptive_foreground.svg',",
+         "SvgPicture.asset('assets/sundock_brand.svg',"),
+    ]:
+        source = Path(path).read_text()
+        if source.count(old) != 2:
+            raise ValueError(f"Unexpected number of visible logo references in {path}")
+        Path(path).write_text(source.replace(old, new))
+    replace("pubspec.yaml", "    - assets/plezy.png", "    - assets/sundock_brand.svg")
+    replace("pubspec.yaml", "    - assets/plezy_adaptive_foreground.svg\n", "")
     Path("assets/sundock_brand.svg").write_text("""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <rect width="100" height="100" rx="18" fill="#102B34"/>
   <path d="M33 58A17 17 0 0 1 67 58Z" fill="#F4B857"/>

@@ -4,7 +4,7 @@
 
 The unofficial Android updater fork is preparing a separate app called **autoPlez** (currently a test name). The current APK and its in-app updater stay on the old release channel. They will not offer autoPlez as a normal update.
 
-When autoPlez is available, you will need to **install it once as a separate app**. Android does not transfer app data or sign-ins between these two app IDs. Keep the old app installed until you have signed in to the new app and checked that your libraries and playback work. On phones and tablets, Settings → Backup may transfer supported preferences; it excludes sign-ins, and that menu is not available on Android TV. autoPlez will have its own built-in updater for later autoPlez releases.
+When autoPlez is available, you will need to **install it once as a separate app**. Android does not transfer app data or sign-ins between these two app IDs. Keep the old app installed until you have signed in to the new app and checked that your libraries and playback work. On phones and tablets, Settings → Backup may help transfer some preferences. Save the file to a shared folder, then sign in and switch to the corresponding profile in the new app before importing. Use a separate file for each profile. Backup is not available on Android TV. autoPlez will have its own built-in updater for later autoPlez releases.
 
 When the new app is ready, this notice will point to install instructions. Until then, there is nothing you need to install. Existing copies of the old app will not receive a push notification from edits to this page.
 
