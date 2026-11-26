@@ -114,16 +114,18 @@ jobs:
       - name: Apply the draft Sundock identity in the runner only
         run: python3 -B "$RUNNER_TEMP/apply_sundock_identity.py"
 
-      - name: Regenerate and verify Sundock source
+      - name: Regenerate and verify draft autoPlez source
         run: |
+          set -euo pipefail
           scripts/codegen.sh
-          scripts/codegen.sh --check
           git add -u
           git add assets/sundock_brand.svg android/app/src/main/res/drawable/sundock_launcher.xml android/app/src/main/res/drawable/sundock_tv_banner.xml
-          git -c user.name='Sundock rehearsal' -c user.email='sundock-rehearsal@users.noreply.github.com' commit -m 'test(android): overlay Sundock identity in isolated runner'
-          git status --short
+          git -c user.name='Android rebrand rehearsal' -c user.email='android-rebrand-rehearsal@users.noreply.github.com' commit -m 'test(android): overlay draft autoPlez identity in isolated runner'
+          test -z "$(git status --porcelain --untracked-files=no)"
+          # The checker regenerates a temporary worktree of HEAD, not the working tree.
+          scripts/codegen.sh --check
 
-      - name: Run Sundock link and separate feed regression tests
+      - name: Run draft autoPlez link and separate feed regression tests
         run: |
           flutter test --dart-define=ANDROID_UPDATE_REPOSITORY=Maikel-J/plezy-auto-update \
             test/services/deep_links test/widgets/deep_link_dialog_test.dart \
@@ -131,7 +133,14 @@ jobs:
 
       - name: Inventory remaining old branding and upstream integrations
         run: |
-          git grep -n -E 'ice[.]plezy[.]app|plezy[.]app|assets/plezy|Plezy/' -- lib android/app/src/main | cut -c1-220 | head -120 || true
+          {
+            echo 'Hosted endpoints / identity:'
+            git grep -l -E 'ice[.]plezy[.]app|bugs[.]plezy[.]app|Plezy/|relay[.]plezy' -- lib android/app/src/main ':!lib/i18n' || true
+            echo 'Visible Flutter assets:'
+            git grep -l -E 'assets/plezy|assets/app_icons' -- lib pubspec.yaml ':!lib/i18n' || true
+            echo 'Legacy Android launcher resource and alias paths:'
+            git ls-files android/app/src/main/res | grep -E 'ic_launcher|tv_banner|app_icon' | sed -n '1,100p' || true
+          }
 
       - name: Configure Android local properties
         run: printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_HOME" > android/local.properties
