@@ -108,11 +108,30 @@ jobs:
           grep -F -- '- packages/**/pigeons/**' analysis_options.yaml
           grep -F -- '- packages/**/test/**' analysis_options.yaml
 
-      - name: Verify generated source required by Android
-        run: scripts/codegen.sh --check
+      - name: Verify the upstream merge retained the updater before rebranding
+        run: python3 -B -c 'import sys; sys.path.insert(0, "scripts/release"); import upstream_android; upstream_android.verify_updater()'
 
-      - name: Run Android updater Dart tests
-        run: flutter test test/services/android_update_service_test.dart test/services/update_service_test.dart
+      - name: Apply the draft Sundock identity in the runner only
+        run: python3 -B "$RUNNER_TEMP/apply_sundock_identity.py"
+
+      - name: Regenerate and verify Sundock source
+        run: |
+          scripts/codegen.sh
+          scripts/codegen.sh --check
+          git add -u
+          git add assets/sundock_brand.svg android/app/src/main/res/drawable/sundock_launcher.xml android/app/src/main/res/drawable/sundock_tv_banner.xml
+          git -c user.name='Sundock rehearsal' -c user.email='sundock-rehearsal@users.noreply.github.com' commit -m 'test(android): overlay Sundock identity in isolated runner'
+          git status --short
+
+      - name: Run Sundock link and separate feed regression tests
+        run: |
+          flutter test --dart-define=ANDROID_UPDATE_REPOSITORY=Maikel-J/plezy-auto-update \
+            test/services/deep_links test/widgets/deep_link_dialog_test.dart \
+            test/services/android_update_service_test.dart test/services/update_service_test.dart
+
+      - name: Inventory remaining old branding and upstream integrations
+        run: |
+          git grep -n -E 'ice[.]plezy[.]app|plezy[.]app|assets/plezy|Plezy/' -- lib android/app/src/main | cut -c1-220 | head -120 || true
 
       - name: Configure Android local properties
         run: printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$FLUTTER_ROOT" "$ANDROID_HOME" > android/local.properties
@@ -136,19 +155,14 @@ jobs:
         working-directory: android
         run: ./gradlew :app:lintDebug
 
-      - name: Apply the draft Sundock identity in the runner only
-        run: python3 -B "$RUNNER_TEMP/apply_sundock_identity.py"
-
       - name: Assemble release APKs and verify updater packaging
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.repository == 'Maikel-J/plezy-auto-update'
         run: |
           set -euo pipefail
           # Candidate builds use neither the production key nor release permissions.
           test ! -e android/key.properties
-          python3 -B -c 'import sys; sys.path.insert(0, "scripts/release"); import upstream_android; upstream_android.verify_updater()'
           flutter build apk --release --split-per-abi \
             --dart-define=ENABLE_UPDATE_CHECK=true \
-            --dart-define=ANDROID_UPDATE_REPOSITORY=Maikel-J/sundock-media \
             --dart-define=GIT_COMMIT="$(git rev-parse HEAD)"
           export APKANALYZER="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
           test -x "$APKANALYZER"
@@ -184,6 +198,12 @@ jobs:
                   raise SystemExit(f'Unexpected Android app ID in {apk}')
               if 'android.permission.REQUEST_INSTALL_PACKAGES' not in permissions:
                   raise SystemExit(f'Missing updater installation permission in {apk}')
+              authorities = {p.get(android + 'authorities', '')
+                             for p in manifest.findall('application/provider')}
+              if not {app_id + '.fileprovider', app_id + '.systemshelf.artwork'} <= authorities:
+                  raise SystemExit(f'Missing independent Android provider authority in {apk}')
+              if any(part.startswith('com.edde746.plezy.') for a in authorities for part in a.split(';')):
+                  raise SystemExit(f'Legacy provider authority prevents side-by-side installation in {apk}')
               if (len(providers) != 1 or providers[0].get(android + 'exported') != 'false'
                       or providers[0].get(android + 'grantUriPermissions') != 'true'):
                   raise SystemExit(f'Missing or invalid updater file provider in {apk}')
