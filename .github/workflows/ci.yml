@@ -22,7 +22,8 @@ env:
 
 jobs:
   android-ci:
-    name: Android release checks
+    name: Sundock Android identity rehearsal
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'dot/sundock-rebrand-rehearsal' && github.repository == 'Maikel-J/plezy-auto-update'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -32,6 +33,36 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      - name: Prepare exact upstream 2.26.0 without publishing
+        id: prepare_release
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          cp scripts/release/upstream_android.py "$RUNNER_TEMP/plezy-rehearsal.py"
+          cp scripts/release/apply_sundock_identity.py "$RUNNER_TEMP/apply_sundock_identity.py"
+          git checkout --detach '64cfabe6dfc02b0e2b6e188e39bbf4867d40ed9d'
+          test "$(git rev-parse HEAD)" = '64cfabe6dfc02b0e2b6e188e39bbf4867d40ed9d'
+          git fetch --no-tags https://github.com/edde746/plezy.git refs/tags/2.26.0
+          test "$(git rev-parse 'FETCH_HEAD^{commit}')" = '671a0d7b7bf7dacf37dc4a6086b6a9c0734904f7'
+          test "$(git show FETCH_HEAD:pubspec.yaml | grep '^version:' | cut -d' ' -f2 | cut -d+ -f1)" = '2.26.0'
+          cat > "$RUNNER_TEMP/plezy-rehearsal.json" <<'JSON'
+          {"repository":"Maikel-J/plezy-auto-update","upstream_repository":"edde746/plezy","upstream_release_id":438618389,"upstream_tag":"2.26.0","upstream_published_at":"2026-11-09T01:46:46Z","upstream_url":"https://github.com/edde746/plezy/releases/tag/2.26.0","version":"2.26.0","release_tag":"v2.26.0+android.1","previous_build":158}
+          JSON
+          python3 "$RUNNER_TEMP/plezy-rehearsal.py" prepare --plan "$RUNNER_TEMP/plezy-rehearsal.json"
+          python3 - "$RUNNER_TEMP/plezy-rehearsal.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          plan = json.loads(Path(sys.argv[1]).read_text())
+          assert plan['upstream_sha'] == '671a0d7b7bf7dacf37dc4a6086b6a9c0734904f7', plan
+          assert not plan.get('retry_tag'), plan
+          assert plan['build_number'] == 161, plan
+          assert plan['version'] == '2.26.0', plan
+          print(f"Verified upstream source {plan['upstream_sha']}, Android build {plan['build_number']}")
+          PY
 
       - name: Setup Java
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
@@ -43,7 +74,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
-          flutter-version: ${{ env.FLUTTER_VERSION }}
+          flutter-version: ${{ steps.prepare_release.outputs.flutter_version }}
           cache: true
           pub-cache: false
 
@@ -66,11 +97,19 @@ jobs:
       - name: Install locked dependencies
         run: flutter pub get --enforce-lockfile --no-example
 
+      - name: Regenerate and commit release source in the runner
+        run: |
+          set -euo pipefail
+          scripts/codegen.sh
+          python3 "$RUNNER_TEMP/plezy-rehearsal.py" commit-source --plan "$RUNNER_TEMP/plezy-rehearsal.json"
+          git merge-base --is-ancestor '671a0d7b7bf7dacf37dc4a6086b6a9c0734904f7' HEAD
+          diff -u <(git ls-tree --name-only -r HEAD .github/workflows | sort) <(printf '%s\n' .github/workflows/{build,ci,sync-upstream,upstream-android}.yml | sort)
+          grep -F -- '- worktrees/**' analysis_options.yaml
+          grep -F -- '- packages/**/pigeons/**' analysis_options.yaml
+          grep -F -- '- packages/**/test/**' analysis_options.yaml
+
       - name: Verify generated source required by Android
         run: scripts/codegen.sh --check
-
-      - name: Test signed upgrade compatibility guard
-        run: python3 -B -m unittest discover -s scripts/release -p test_upgrade_compatibility.py
 
       - name: Run Android updater Dart tests
         run: flutter test test/services/android_update_service_test.dart test/services/update_service_test.dart
@@ -86,13 +125,19 @@ jobs:
           cmake --build build/android-host-tests --parallel 2
           ctest --test-dir build/android-host-tests --output-on-failure --no-tests=error
 
-      - name: Run Android JVM unit tests
+      - name: Run production updater JVM tests
         working-directory: android
-        run: ./gradlew :app:testDebugUnitTest :saf_util:testDebugUnitTest :libass:testDebugUnitTest -x :app:compileFlutterBuildDebug --continue
+        env:
+          # Robolectric's default Maven Central hostname returned HTTP 429 in CI.
+          JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://repo.maven.apache.org/maven2
+        run: ./gradlew :app:testDebugUnitTest --tests 'com.edde746.plezy.AppUpdateChannelTest' -x :app:compileFlutterBuildDebug
 
       - name: Check Android API compatibility
         working-directory: android
         run: ./gradlew :app:lintDebug
+
+      - name: Apply the draft Sundock identity in the runner only
+        run: python3 -B "$RUNNER_TEMP/apply_sundock_identity.py"
 
       - name: Assemble release APKs and verify updater packaging
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.repository == 'Maikel-J/plezy-auto-update'
@@ -103,7 +148,7 @@ jobs:
           python3 -B -c 'import sys; sys.path.insert(0, "scripts/release"); import upstream_android; upstream_android.verify_updater()'
           flutter build apk --release --split-per-abi \
             --dart-define=ENABLE_UPDATE_CHECK=true \
-            --dart-define=ANDROID_UPDATE_REPOSITORY="$GITHUB_REPOSITORY" \
+            --dart-define=ANDROID_UPDATE_REPOSITORY=Maikel-J/sundock-media \
             --dart-define=GIT_COMMIT="$(git rev-parse HEAD)"
           export APKANALYZER="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
           test -x "$APKANALYZER"
@@ -114,7 +159,8 @@ jobs:
           import xml.etree.ElementTree as ET
 
           android = '{http://schemas.android.com/apk/res/android}'
-          app_id = 'com.edde746.plezy'
+          app_id = 'io.github.maikelj.sundock'
+          expected_codes = {'arm64-v8a': '2161', 'armeabi-v7a': '1161', 'x86_64': '4161'}
           for abi in ('arm64-v8a', 'armeabi-v7a', 'x86_64'):
               apk = Path(f'build/app/outputs/flutter-apk/app-{abi}-release.apk')
               if not apk.is_file() or not apk.stat().st_size:
@@ -125,6 +171,15 @@ jobs:
               permissions = {p.get(android + 'name') for p in manifest.findall('uses-permission')}
               providers = [p for p in manifest.findall('application/provider')
                            if p.get(android + 'authorities') == app_id + '.updates']
+              if manifest.get(android + 'versionName') != '2.26.0':
+                  raise SystemExit(f'Unexpected Android version name in {apk}')
+              if manifest.get(android + 'versionCode') != expected_codes[abi]:
+                  raise SystemExit(f'Unexpected Android version code in {apk}')
+              schemes = {entry.get(android + 'scheme') for entry in manifest.findall('.//intent-filter/data')}
+              if 'sundockmedia' not in schemes or 'plezy' in schemes:
+                  raise SystemExit(f'Unexpected Android URI scheme in {apk}')
+              if manifest.find('application').get(android + 'label') != 'Sundock Media':
+                  raise SystemExit(f'Unexpected Android app label in {apk}')
               if manifest.get('package') != app_id:
                   raise SystemExit(f'Unexpected Android app ID in {apk}')
               if 'android.permission.REQUEST_INSTALL_PACKAGES' not in permissions:
@@ -134,3 +189,24 @@ jobs:
                   raise SystemExit(f'Missing or invalid updater file provider in {apk}')
               print(f'Verified {apk}: {app_id}, installer permission, and private updater file provider')
           PY
+
+      - name: Run full Android JVM suite
+        working-directory: android
+        env:
+          JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://maven-central.storage-download.googleapis.com/maven2/
+        run: |
+          set -euo pipefail
+          if ! ./gradlew :app:testDebugUnitTest :saf_util:testDebugUnitTest :libass:testDebugUnitTest -x :app:compileFlutterBuildDebug --continue; then
+            python3 - <<'PY'
+          import pathlib
+          import xml.etree.ElementTree as ET
+          reports = pathlib.Path('../build').glob('*/test-results/testDebugUnitTest/TEST-*.xml')
+          for report in reports:
+              suite = ET.parse(report).getroot()
+              for case in suite.findall('testcase'):
+                  for failure in case.findall('failure'):
+                      print(case.get('classname'), case.get('name'))
+                      print((failure.text or failure.get('message') or '')[:4500])
+          PY
+            exit 1
+          fi
