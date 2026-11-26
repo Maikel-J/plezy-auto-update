@@ -213,6 +213,15 @@ def isolate_diagnostics() -> None:
             "enables copy with a record but an empty log buffer")
     replace(str(path), "[t.logs.uploadLogs, t.logs.copyLogs, t.logs.clearLogs]",
             "[t.logs.copyLogs, t.logs.clearLogs]")
+    replace(str(path), "startsWith('Plezy')", "startsWith('${t.app.title} v')")
+    replace(str(path), "find.textContaining('Plezy', findRichText: true)",
+            "find.textContaining('${t.app.title} v', findRichText: true)")
+    replace("test/widgets/startup_failure_view_test.dart",
+            "    // The diagnostic actions stay, because a stuck user still needs them out.",
+            "    // Local diagnostic copy stays available even when storage is gated.")
+    replace("test/widgets/startup_failure_view_test.dart",
+            "expect(find.byKey(startupFailureUploadKey), findsOneWidget);",
+            "expect(find.byKey(startupFailureUploadKey), findsNothing);")
     replace("test/widgets/startup_failure_view_test.dart",
             "    expect(find.byKey(startupFailureRestartKey), findsNothing);",
             "    expect(find.byKey(startupFailureRestartKey), findsNothing);\n"
