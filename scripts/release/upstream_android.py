@@ -127,6 +127,20 @@ def discover(plan_path: Path) -> None:
     print(f"Selected {UPSTREAM} {plan['upstream_tag']} -> {plan['release_tag']}")
 
 
+def verify_release_ancestry(fork_head: str, release_commit: str, upstream_tip: str) -> None:
+    """Do not label newer upstream source with an older queued release version."""
+    ancestry = run("git", "merge-base", "--all", fork_head, upstream_tip, check=False)
+    bases = ancestry.stdout.splitlines()
+    if ancestry.returncode or not bases:
+        raise ValueError("Cannot establish the fork's ancestry against upstream main")
+    for common in bases:
+        if run("git", "merge-base", "--is-ancestor", common, release_commit, check=False).returncode:
+            raise ValueError(
+                f"Fork already contains upstream source {common} outside the selected release "
+                f"{release_commit}; prepare from a release-matched fork base."
+            )
+
+
 def prepare(plan_path: Path) -> None:
     plan = json.loads(plan_path.read_text())
     tag_ref = f"refs/tags/{plan['release_tag']}"
@@ -146,6 +160,9 @@ def prepare(plan_path: Path) -> None:
         git("fetch", "--no-tags", f"https://github.com/{UPSTREAM}.git", f"refs/tags/{plan['upstream_tag']}")
         upstream_sha = git("rev-parse", "FETCH_HEAD^{commit}")
         plan["upstream_sha"] = upstream_sha
+        git("fetch", "--no-tags", f"https://github.com/{UPSTREAM}.git", "refs/heads/main")
+        upstream_tip = git("rev-parse", "FETCH_HEAD^{commit}")
+        verify_release_ancestry(plan["fork_base_sha"], upstream_sha, upstream_tip)
         merge = run("git", "merge", "--no-commit", "--no-ff", upstream_sha, check=False)
         if merge.returncode:
             conflicts = set(filter(None, git("diff", "--name-only", "--diff-filter=U").splitlines()))
