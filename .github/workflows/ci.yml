@@ -192,7 +192,7 @@ jobs:
               schemes = {entry.get(android + 'scheme') for entry in manifest.findall('.//intent-filter/data')}
               if 'sundockmedia' not in schemes or 'plezy' in schemes:
                   raise SystemExit(f'Unexpected Android URI scheme in {apk}')
-              if manifest.find('application').get(android + 'label') != 'Sundock Media':
+              if manifest.find('application').get(android + 'label') != 'autoPlez':
                   raise SystemExit(f'Unexpected Android app label in {apk}')
               if manifest.get('package') != app_id:
                   raise SystemExit(f'Unexpected Android app ID in {apk}')

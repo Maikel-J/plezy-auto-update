@@ -7,7 +7,7 @@ service audit is not finished. The existing Plezy feed is never a fallback.
 from pathlib import Path
 
 APP_ID = "io.github.maikelj.sundock"
-APP_NAME = "Sundock Media"
+APP_NAME = "autoPlez"
 SCHEME = "sundockmedia"
 FEED = "Maikel-J/sundock-media"
 OLD_FEED = "Maikel-J/plezy-auto-update"
