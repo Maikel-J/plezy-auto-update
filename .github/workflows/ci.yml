@@ -200,6 +200,17 @@ jobs:
               if any(flutter_assets + old in packaged for old in
                      ('plezy.png', 'plezy_adaptive_foreground.svg')):
                   raise SystemExit(f'Legacy Flutter logo is still bundled in {apk}')
+              if any(p.startswith(flutter_assets + 'app_icons/previews/') for p in packaged):
+                  raise SystemExit(f'Legacy launcher previews are still bundled in {apk}')
+              if any(p.startswith('res/') and p.rsplit('/', 1)[-1].startswith(('ic_launcher', 'tv_banner'))
+                     for p in packaged):
+                  raise SystemExit(f'Legacy Android launcher resource is still bundled in {apk}')
+              aliases = manifest.findall('application/activity-alias')
+              if len(aliases) != 1 or not aliases[0].get(android + 'name', '').endswith('.MainActivity'):
+                  raise SystemExit(f'Expected only the default launcher alias in {apk}')
+              categories = {c.get(android + 'name') for c in aliases[0].findall('intent-filter/category')}
+              if not {'android.intent.category.LAUNCHER', 'android.intent.category.LEANBACK_LAUNCHER'} <= categories:
+                  raise SystemExit(f'Default launcher is missing handheld or TV support in {apk}')
               permissions = {p.get(android + 'name') for p in manifest.findall('uses-permission')}
               providers = [p for p in manifest.findall('application/provider')
                            if p.get(android + 'authorities') == app_id + '.updates']

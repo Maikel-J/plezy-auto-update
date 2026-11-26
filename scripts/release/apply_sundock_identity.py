@@ -119,6 +119,33 @@ def apply_about_brand() -> None:
 """)
 
 
+def remove_legacy_launcher_art(manifest: str) -> None:
+    path = Path(manifest)
+    source = path.read_text()
+    begin = "        <!-- Alternate icons (AppIconChannel): disabled until chosen. Ids are permanent. -->"
+    end = "        <!-- END generated app icon aliases -->\n"
+    if source.count(begin) != 1 or source.count(end) != 1:
+        raise ValueError("Launcher alias boundaries changed")
+    first = source.index(begin)
+    last = source.index(end, first) + len(end)
+    if source[first:last].count('android:name=".appicon.') != 23:
+        raise ValueError("Unexpected legacy launcher alias inventory")
+    path.write_text(source[:first] + source[last:])
+    replace("android/app/src/main/res/drawable/splash_icon.xml",
+            'android:drawable="@drawable/ic_launcher_foreground"',
+            'android:drawable="@drawable/sundock_launcher"')
+    replace("pubspec.yaml",
+            "    # App icon picker thumbnails; scripts/codegen/generate_app_icons.py renders them from\n"
+            "    # assets/app_icons/source, which stays out of the bundle.\n"
+            "    - assets/app_icons/previews/\n", "")
+    res = Path("android/app/src/main/res")
+    legacy = [f for f in res.glob("*/*") if f.is_file() and f.name.startswith(("ic_launcher", "tv_banner"))]
+    if len(legacy) != 287:
+        raise ValueError(f"Unexpected legacy launcher resource inventory: {len(legacy)}")
+    for file in legacy:
+        file.unlink()
+
+
 def apply_identity() -> None:
     gradle = "android/app/build.gradle.kts"
     manifest = "android/app/src/main/AndroidManifest.xml"
@@ -141,6 +168,7 @@ def apply_identity() -> None:
 """)
     update_runtime_identity()
     apply_about_brand()
+    remove_legacy_launcher_art(manifest)
     for name, dimensions in (("sundock_launcher", (108, 108, 100)), ("sundock_tv_banner", (320, 180, 178))):
         output = Path("android/app/src/main/res/drawable") / f"{name}.xml"
         output.parent.mkdir(parents=True, exist_ok=True)
