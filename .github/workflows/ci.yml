@@ -43,6 +43,7 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           cp scripts/release/upstream_android.py "$RUNNER_TEMP/plezy-rehearsal.py"
           cp scripts/release/apply_sundock_identity.py "$RUNNER_TEMP/apply_sundock_identity.py"
+          cp .github/workflows/ci.yml "$RUNNER_TEMP/autoplez-rehearsal-workflow.yml"
           git checkout --detach '64cfabe6dfc02b0e2b6e188e39bbf4867d40ed9d'
           test "$(git rev-parse HEAD)" = '64cfabe6dfc02b0e2b6e188e39bbf4867d40ed9d'
           git fetch --no-tags https://github.com/edde746/plezy.git refs/tags/2.26.0
@@ -115,15 +116,24 @@ jobs:
         run: python3 -B "$RUNNER_TEMP/apply_sundock_identity.py"
 
       - name: Regenerate and verify draft autoPlez source
+        id: rebrand_source
         run: |
           set -euo pipefail
           scripts/codegen.sh
           git add -u
           git add assets/sundock_brand.svg android/app/src/main/res/drawable/sundock_launcher.xml android/app/src/main/res/drawable/sundock_tv_banner.xml
+          # Preserve the actual controlling scripts with the build tree, outside
+          # .github/workflows so the archived CI recipe is never interpreted as a trigger.
+          mkdir -p scripts/release/rehearsal
+          cp "$RUNNER_TEMP/apply_sundock_identity.py" scripts/release/rehearsal/
+          cp "$RUNNER_TEMP/plezy-rehearsal.py" scripts/release/rehearsal/
+          cp "$RUNNER_TEMP/autoplez-rehearsal-workflow.yml" scripts/release/rehearsal/
+          git add scripts/release/rehearsal
           git -c user.name='Android rebrand rehearsal' -c user.email='android-rebrand-rehearsal@users.noreply.github.com' commit -m 'test(android): overlay draft autoPlez identity in isolated runner'
           test -z "$(git status --porcelain --untracked-files=no)"
           # The checker regenerates a temporary worktree of HEAD, not the working tree.
           scripts/codegen.sh --check
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Run draft autoPlez link and separate feed regression tests
         run: |
@@ -167,13 +177,16 @@ jobs:
 
       - name: Assemble release APKs and verify updater packaging
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.repository == 'Maikel-J/plezy-auto-update'
+        env:
+          BUILD_SOURCE_SHA: ${{ steps.rebrand_source.outputs.sha }}
         run: |
           set -euo pipefail
           # Candidate builds use neither the production key nor release permissions.
           test ! -e android/key.properties
+          test "$(git rev-parse HEAD)" = "$BUILD_SOURCE_SHA"
           flutter build apk --release --split-per-abi \
             --dart-define=ENABLE_UPDATE_CHECK=true \
-            --dart-define=GIT_COMMIT="$(git rev-parse HEAD)"
+            --dart-define=GIT_COMMIT="$BUILD_SOURCE_SHA"
           export APKANALYZER="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
           test -x "$APKANALYZER"
           python3 - <<'PY'
@@ -259,6 +272,43 @@ jobs:
           AUTOPLEZ_REHEARSAL_ASSET_JSON="$RUNNER_TEMP/autoplez-rehearsal-assets.json" \
             flutter test test/services/android_update_service_test.dart
 
+
+      - name: Verify source snapshot matches the exact built commit without uploading
+        env:
+          BUILD_SOURCE_SHA: ${{ steps.rebrand_source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$BUILD_SOURCE_SHA"
+          git diff --exit-code HEAD --
+          # Do not silently omit any submodule trees from the snapshot.
+          if git ls-tree -r HEAD | grep '^160000 ' > "$RUNNER_TEMP/autoplez-submodules"; then
+            cat "$RUNNER_TEMP/autoplez-submodules"
+            exit 1
+          fi
+          archive="$RUNNER_TEMP/autoplez-rehearsal-src.tar"
+          trap 'rm -f "$archive"' EXIT
+          git archive --format=tar --output="$archive" "$BUILD_SOURCE_SHA"
+          test "$(git get-tar-commit-id < "$archive")" = "$BUILD_SOURCE_SHA"
+          python3 - "$archive" <<'PY'
+          from pathlib import Path
+          import sys
+          import tarfile
+
+          required = (
+              'LICENSE', 'pubspec.yaml', 'pubspec.lock', 'scripts/codegen.sh',
+              'lib/i18n/strings_en.g.dart', 'lib/services/android_update_service.dart',
+              'assets/sundock_brand.svg', 'android/app/build.gradle.kts',
+              'scripts/release/rehearsal/apply_sundock_identity.py',
+              'scripts/release/rehearsal/plezy-rehearsal.py',
+              'scripts/release/rehearsal/autoplez-rehearsal-workflow.yml',
+          )
+          with tarfile.open(sys.argv[1], 'r:') as archive:
+              for name in required:
+                  member = archive.extractfile(name)
+                  if member is None or member.read() != Path(name).read_bytes():
+                      raise SystemExit(f'Source archive content differs: {name}')
+          print('Verified exact unsigned build source snapshot and controlling scripts; nothing uploaded')
+          PY
 
       - name: Run full Android JVM suite
         working-directory: android
