@@ -229,6 +229,48 @@ def isolate_diagnostics() -> None:
             "    expect(find.byKey(startupFailureCopyKey), findsOneWidget);")
 
 
+
+def isolate_updater_asset_names() -> None:
+    service = Path("lib/services/android_update_service.dart")
+    tests = Path("test/services/android_update_service_test.dart")
+    old = "plezy-android-"
+    new = "autoplez-android-"
+    source = service.read_text()
+    if source.count(old) != 2:
+        raise ValueError("Unexpected updater asset name patterns")
+    service.write_text(source.replace(old, new))
+    test_source = tests.read_text()
+    if test_source.count(old) < 5:
+        raise ValueError("Missing updater asset test fixtures")
+    tests.write_text(test_source.replace(old, new))
+    replace(str(tests), "import 'dart:async';", "import 'dart:async';\nimport 'dart:convert';")
+    replace(str(tests), f"const repository = '{OLD_FEED}';", f"const repository = '{FEED}';")
+    replace(str(tests), "  group('release asset selection', () {", """  group('release asset selection', () {
+    test('rejects legacy asset names and Flutter build filenames', () {
+      for (final name in ['plezy-android-arm64-v8a.apk', 'app-arm64-v8a-release.apk']) {
+        expect(AndroidUpdateAsset.select([
+          {...releaseAsset('arm64-v8a'), 'name': name},
+        ], ['arm64-v8a'], repository), isNull);
+      }
+    });
+
+    final manifestPath = Platform.environment['AUTOPLEZ_REHEARSAL_ASSET_JSON'];
+    if (manifestPath != null) {
+      test('all three staged release names resolve from the publication metadata', () {
+        final manifest = jsonDecode(File(manifestPath).readAsStringSync()) as Map<String, dynamic>;
+        final assets = manifest['assets'] as List<dynamic>;
+        expect(assets, hasLength(3));
+        for (final abi in ['arm64-v8a', 'armeabi-v7a', 'x86_64']) {
+          final asset = AndroidUpdateAsset.select(assets, [abi], repository)!;
+          expect(asset.url.pathSegments.last, 'autoplez-android-$abi.apk');
+          expect(asset.size, greaterThan(0));
+          expect(asset.sha256Digest, matches(r'^[0-9a-f]{64}$'));
+        }
+        expect(AndroidUpdateAsset.select(assets, ['arm64-v8a'], 'Maikel-J/plezy-auto-update'), isNull);
+      });
+    }
+""")
+
 def apply_identity() -> None:
     gradle = "android/app/build.gradle.kts"
     manifest = "android/app/src/main/AndroidManifest.xml"
@@ -253,6 +295,7 @@ def apply_identity() -> None:
     apply_about_brand()
     remove_legacy_launcher_art(manifest)
     isolate_diagnostics()
+    isolate_updater_asset_names()
     for name, dimensions in (("sundock_launcher", (108, 108, 100)), ("sundock_tv_banner", (320, 180, 178))):
         output = Path("android/app/src/main/res/drawable") / f"{name}.xml"
         output.parent.mkdir(parents=True, exist_ok=True)
