@@ -338,7 +338,16 @@ def isolate_watch_together_relays() -> None:
             "_clientName = clientName ?? _appClientName")
     replace("lib/watch_together/providers/watch_together_provider.dart",
             "static String _defaultName() => 'Plezy';",
-            "static String _defaultName() => 'autoPlez';")
+            "static String _defaultName() => _relayParticipantFallback;")
+    replace("lib/watch_together/providers/watch_together_provider.dart",
+            "String _sanitizedName(String name) {",
+            f"const _relayParticipantFallback = '{APP_NAME}';\n\nString _sanitizedName(String name) {{")
+    replace("lib/watch_together/providers/watch_together_provider.dart",
+            "  if (text == null) return 'Plezy';",
+            "  if (text == null) return _relayParticipantFallback;")
+    replace("lib/watch_together/providers/watch_together_provider.dart",
+            "  return kept.isEmpty ? 'Plezy' : kept;",
+            "  return kept.isEmpty ? _relayParticipantFallback : kept;")
     replace("lib/watch_together/providers/watch_together_provider.dart",
             "static Future<String> _plezyClientName() async {",
             "static Future<String> _appClientName() async {")
@@ -455,7 +464,7 @@ def isolate_watch_together_relays() -> None:
             "      expect(find.text('K7M-Q2X'), findsNothing, reason: 'that code belongs to a different relay');")
     replace("test/watch_together/watch_together_screen_test.dart",
             "  group('out of a room', () {",
-            "  group('out of a room', () {\n    _screenTest('unconfigured relay disables room actions and hides old public rooms', (tester, world) async {\n      final provider = world.guest(profileId: 'p1', relayBaseUrl: '');\n      await RecentRoomsService.addOrUpdateRoom(FakeOwpRelay.code, profileId: 'p1', relayScope: 'public');\n      await _openScreen(tester, provider);\n      expect(find.text(t.watchTogether.relayRequired), findsOneWidget);\n      expect(_enabled(tester, t.watchTogether.createRoom), isFalse);\n      expect(_enabled(tester, t.watchTogether.joinRoom), isFalse);\n      expect(find.text('K7M-Q2X'), findsNothing);\n      expect(world.relay.sent('create'), isEmpty);\n      expect(world.relay.sent('join'), isEmpty);\n    });\n")
+            "  group('out of a room', () {\n    _screenTest('unconfigured relay disables room actions and hides old public rooms', (tester, world) async {\n      final provider = world.member('Ben', profileId: 'p1', relayBaseUrl: '');\n      await RecentRoomsService.addOrUpdateRoom(FakeOwpRelay.code, profileId: 'p1', relayScope: 'public');\n      await _openScreen(tester, provider);\n      expect(find.text(t.watchTogether.relayRequired), findsOneWidget);\n      expect(_enabled(tester, t.watchTogether.createRoom), isFalse);\n      expect(_enabled(tester, t.watchTogether.joinRoom), isFalse);\n      expect(find.text('K7M-Q2X'), findsNothing);\n      expect(world.relay.sent('create'), isEmpty);\n      expect(world.relay.sent('join'), isEmpty);\n    });\n")
     replace("test/screens/settings/settings_screen_test.dart",
             "expect(find.text(t.settings.watchTogetherRelayInvalid), findsOneWidget);",
             "expect(find.text(t.watchTogether.independentRelayInvalid), findsOneWidget);")
