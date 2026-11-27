@@ -142,7 +142,8 @@ jobs:
             test/services/android_update_service_test.dart test/services/update_service_test.dart \
             test/screens/settings/logs_screen_test.dart test/widgets/startup_failure_view_test.dart \
             test/services/jellyfin_auth_header_test.dart test/services/jellyfin_client_urls_test.dart \
-            test/services/plex_auth_service_test.dart
+            test/services/plex_auth_service_test.dart \
+            test/watch_together test/screens/settings/settings_screen_test.dart
 
       - name: Inventory remaining old branding and upstream integrations
         run: |

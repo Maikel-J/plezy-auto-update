@@ -13,12 +13,12 @@ FEED = "Maikel-J/sundock-media"
 OLD_FEED = "Maikel-J/plezy-auto-update"
 
 
-def replace(path: str, old: str, new: str) -> None:
+def replace(path: str, old: str, new: str, *, expected: int = 1) -> None:
     file = Path(path)
     source = file.read_text()
-    if source.count(old) != 1:
-        raise ValueError(f"Expected exactly one identity site in {path}: {old!r}")
-    file.write_text(source.replace(old, new, 1))
+    if source.count(old) != expected:
+        raise ValueError(f"Expected {expected} matching site(s) in {path}: {old!r}")
+    file.write_text(source.replace(old, new, expected))
 
 
 def drawable(width: int, height: int, viewport: int) -> str:
@@ -318,6 +318,158 @@ def rebrand_media_server_identity() -> None:
             "          if (request.url.host == 'clients.plex.tv') {")
 
 
+def isolate_watch_together_relays() -> None:
+    # The SDK also supports a public network. This rehearsal deliberately
+    # selects exactly one explicitly configured relay and never falls back.
+    replace("lib/watch_together/services/watch_party_relays.dart",
+            "String? canonicalRelayBaseUrl(String input) {\n  final trimmed = input.trim();",
+            "String? canonicalRelayBaseUrl(String? input) {\n  final trimmed = input?.trim() ?? '';")
+    replace("lib/watch_together/services/watch_party_relays.dart",
+            "  final host = uri.host.toLowerCase();",
+            "  final host = uri.host.toLowerCase();\n  final dnsHost = host.replaceFirst(RegExp(r'\\.+$'), '');\n  if (dnsHost == 'openwatch.party' || dnsHost.endsWith('.openwatch.party') ||\n      dnsHost == 'plezy.app' || dnsHost.endsWith('.plezy.app')) {\n    return null;\n  }")
+    replace("lib/watch_together/services/watch_party_relays.dart",
+            "/// The relays rooms live on: the public Open Watch Party relays, or the\n/// self-hosted one at [customBaseUrl].\nowp.Relays relaysFor(String? customBaseUrl) =>\n    customBaseUrl == null ? owp.Relays.public() : owp.Relays.at(customBaseUrl);",
+            "/// Local app error; no request has been made.\nconst relayConfigurationRequired = 'autoplez_relay_configuration_required';\n\n/// Use exactly one explicitly configured independent relay, never a public fallback.\nowp.Relays relaysFor(String? customBaseUrl) {\n  final base = canonicalRelayBaseUrl(customBaseUrl);\n  if (base == null) {\n    throw const owp.PartyException(relayConfigurationRequired, 'No independent Watch Together relay configured');\n  }\n  return owp.Relays.at(base);\n}")
+    replace("lib/watch_together/services/watch_party_relays.dart",
+            "customBaseUrl == null ? 'public' : sha256.convert(utf8.encode(customBaseUrl)).toString();",
+            "customBaseUrl == null ? 'unconfigured' : sha256.convert(utf8.encode(customBaseUrl)).toString();")
+    replace("lib/watch_together/providers/watch_together_provider.dart",
+            "_clientName = clientName ?? _plezyClientName",
+            "_clientName = clientName ?? _appClientName")
+    replace("lib/watch_together/providers/watch_together_provider.dart",
+            "static String _defaultName() => 'Plezy';",
+            "static String _defaultName() => 'autoPlez';")
+    replace("lib/watch_together/providers/watch_together_provider.dart",
+            "static Future<String> _plezyClientName() async {",
+            "static Future<String> _appClientName() async {")
+    replace("lib/watch_together/providers/watch_together_provider.dart",
+            "return 'Plezy/${info.version}';",
+            "return 'autoPlez/${info.version}';")
+    replace("lib/watch_together/providers/watch_together_provider.dart",
+            "    final base = _customRelayBaseUrl();",
+            "    final base = customRelayBaseUrl;")
+    replace("lib/watch_together/providers/watch_together_provider.dart",
+            "String get relayScope => relayScopeOf(_customRelayBaseUrl());",
+            "String get relayScope => relayScopeOf(customRelayBaseUrl);")
+    replace("lib/watch_together/providers/watch_together_provider.dart",
+            "  /// The self-hosted relay's base URL rooms use; null for the public relays.\n  String? get customRelayBaseUrl => _customRelayBaseUrl();",
+            "  /// The configured independent relay, or null if the feature is unconfigured.\n  String? get customRelayBaseUrl => canonicalRelayBaseUrl(_customRelayBaseUrl());")
+    replace("lib/watch_together/providers/watch_together_provider.dart",
+            "    await _closeParty();\n    final name = _sanitizedName(_displayName());\n    final party = _partyFactory(relays: _currentRelays(),",
+            "    final relays = _currentRelays();\n    await _closeParty();\n    final name = _sanitizedName(_displayName());\n    final party = _partyFactory(relays: relays,")
+    replace("lib/watch_together/providers/watch_together_provider.dart",
+            "        final relays = _customRelayBaseUrl() == null ? 'the public relays' : 'the custom relay';\n        appLogger.w('WatchTogether: $action failed on $relays: ${error.code}: ${error.message}');",
+            "        appLogger.w('WatchTogether: $action failed on the configured relay: ${error.code}: ${error.message}');")
+    replace("lib/watch_together/widgets/watch_labels.dart",
+            "import '../models/watch_notice.dart';",
+            "import '../models/watch_notice.dart';\nimport '../services/watch_party_relays.dart';")
+    replace("lib/watch_together/widgets/watch_labels.dart",
+            "  owp.ErrorCode.invalidCode =>",
+            "  relayConfigurationRequired => t.watchTogether.relayRequired,\n  owp.ErrorCode.invalidCode =>")
+    replace("lib/watch_together/screens/watch_together_screen.dart",
+            "    final rooms = profileId == null\n",
+            "    final relay = provider.customRelayBaseUrl;\n    final rooms = profileId == null || relay == null\n")
+    replace("lib/watch_together/screens/watch_together_screen.dart",
+            "    final relay = provider.customRelayBaseUrl;\n    return Column(",
+            "    return Column(")
+    replace("lib/watch_together/screens/watch_together_screen.dart",
+            "onPressed: busy ? null : widget.onCreate,",
+            "onPressed: busy || relay == null ? null : widget.onCreate,")
+    replace("lib/watch_together/screens/watch_together_screen.dart",
+            "onPressed: busy ? null : widget.onJoin,",
+            "onPressed: busy || relay == null ? null : widget.onJoin,")
+    replace("lib/watch_together/screens/watch_together_screen.dart",
+            "t.watchTogether.relayPublic : t.watchTogether.relayCustom(url: relay)",
+            "t.watchTogether.relayRequired : t.watchTogether.relayCustom(url: relay)")
+    replace("lib/screens/settings/settings_screen.dart",
+            "subtitle: t.settings.watchTogetherRelayDescription,",
+            "subtitle: t.watchTogether.relayRequired,")
+    replace("lib/screens/settings/settings_screen.dart",
+            "errorText: _relayUrlInvalid ? t.settings.watchTogetherRelayInvalid : null,",
+            "errorText: _relayUrlInvalid ? t.watchTogether.independentRelayInvalid : null,")
+    replace("lib/screens/settings/settings_screen.dart",
+            "DialogActionButton(onPressed: _reset, label: t.settings.resetToDefault),",
+            "DialogActionButton(onPressed: _reset, label: t.watchTogether.clearRelay),")
+    replace("lib/i18n/en.i18n.json",
+            "    \"relayPublic\": \"Rooms use the public Open Watch Party relays.\",",
+            "    \"relayPublic\": \"Rooms use the public Open Watch Party relays.\",\n    \"relayRequired\": \"Set your own relay in Settings → Watch Together Relay. Everyone in a room must use the same relay.\",\n    \"independentRelayInvalid\": \"Enter the HTTP or HTTPS base URL for your own relay.\",\n    \"clearRelay\": \"Clear relay\",")
+    replace("test/watch_together/watch_party_relays_test.dart",
+            "    test('null is the public relays', () {\n      final relays = relaysFor(null);\n      expect(relays.list, isNotEmpty);\n      expect(relays.list.every((relay) => relay.url.startsWith('wss://')), isTrue);\n    });",
+            "    test('missing, malformed and inherited relay URLs fail without selecting a relay', () {\n      for (final input in [null, '', 'invalid', 'https://openwatch.party',\n        'https://EU.RELAY.OPENWATCH.PARTY./', 'https://relay.plezy.app']) {\n        expect(\n          () => relaysFor(input),\n          throwsA(isA<owp.PartyException>().having((e) => e.code, 'code', relayConfigurationRequired)),\n          reason: '$input',\n        );\n      }\n    });")
+    replace("test/watch_together/watch_party_relays_test.dart",
+            "public relays share one scope; each custom base has its own, stable one",
+            "unconfigured is separate; each independent relay has a stable scope")
+    replace("test/watch_together/watch_party_relays_test.dart",
+            "expect(relayScopeOf(null), 'public');",
+            "expect(relayScopeOf(null), 'unconfigured');")
+    replace("test/test_helpers/watch_room_harness.dart",
+            "/// The server the [WatchRoomHarness.host] shares its files from.",
+            "const watchTestRelayBaseUrl = 'https://watch.example.test';\n\n/// The server the [WatchRoomHarness.host] shares its files from.")
+    replace("test/test_helpers/watch_room_harness.dart",
+            "  /// A participant named [name]. [relayBaseUrl] is the relay setting (null:\n  /// the public relays); the room is on [relay] either way.",
+            "  /// A participant named [name]. The test relay is configured unless overridden.")
+    replace("test/test_helpers/watch_room_harness.dart",
+            "customRelayBaseUrl: () => relayBaseUrl,",
+            "customRelayBaseUrl: () => relayBaseUrl ?? watchTestRelayBaseUrl,")
+    replace("test/watch_together/watch_together_provider_test.dart",
+            "    partyFactory: relay.party,",
+            "    partyFactory: relay.party,\n    customRelayBaseUrl: () => 'https://watch.example.test',")
+    replace("test/watch_together/watch_together_provider_test.dart",
+            "presses left to the player, the public relays",
+            "presses left to the player, no relay configured")
+    replace("test/watch_together/watch_together_provider_test.dart",
+            "      expect(h.provider.relayScope, relayScopeOf(null));",
+            "      expect(h.provider.relayScope, relayScopeOf('https://watch.example.test'));")
+    replace("test/watch_together/watch_together_provider_test.dart",
+            "final rooms = RecentRoomsService.getRecentRooms(profileId: profile, relayScope: relayScopeOf(null));",
+            "final rooms = RecentRoomsService.getRecentRooms(\n          profileId: profile, relayScope: relayScopeOf('https://watch.example.test'),\n        );")
+    replace("test/watch_together/watch_together_provider_test.dart",
+            "a display name without text is Plezy",
+            "a display name without text is autoPlez")
+    replace("test/watch_together/watch_together_provider_test.dart",
+            "expect(h.provider.participants.single.name, 'Plezy');",
+            "expect(h.provider.participants.single.name, 'autoPlez');")
+    replace("test/watch_together/watch_together_provider_test.dart",
+            "    test('a player opened outside a room is only remembered; another one releases it', () async {",
+            "    test('create and join reject missing or inherited configuration before the party factory', () async {\n      for (final base in [null, ' ', 'nonsense', 'https://na.relay.openwatch.party']) {\n        final provider = WatchTogetherProvider(\n          customRelayBaseUrl: () => base,\n          clientName: () async => throw StateError('Client metadata must not be read'),\n          partyFactory: ({required relays, required client, required name, required resolver}) =>\n              throw StateError('Unexpected party factory'),\n        );\n        addTearDown(provider.dispose);\n        expect(provider.customRelayBaseUrl, isNull);\n        await expectLater(provider.createRoom(), _partyError(relayConfigurationRequired));\n        await expectLater(provider.joinRoom('K7M-Q2X'), _partyError(relayConfigurationRequired));\n        expect(provider.isInSession, isFalse);\n      }\n    });\n\n    test('a player opened outside a room is only remembered; another one releases it', () async {")
+    replace("test/watch_together/watch_together_screen_test.dart",
+            "List<RecentRoom> _recentRooms(String profileId, [String? relay])",
+            "List<RecentRoom> _recentRooms(String profileId, [String? relay = watchTestRelayBaseUrl])")
+    replace("test/watch_together/watch_together_screen_test.dart",
+            "      await _openScreen(tester, host);\n      expect(find.text(t.watchTogether.relayPublic), findsOneWidget);\n",
+            "      await _openScreen(tester, host);\n      expect(find.text(t.watchTogether.relayCustom(url: watchTestRelayBaseUrl)), findsOneWidget);\n")
+    replace("test/watch_together/watch_together_screen_test.dart",
+            "      await _openScreen(tester, world.guest(profileId: 'p1'));\n      expect(find.text(t.watchTogether.relayPublic), findsOneWidget);\n      expect(find.text('K7M-Q2X'), findsOneWidget);",
+            "      await _openScreen(tester, world.guest(profileId: 'p1'));\n      expect(find.text(t.watchTogether.relayCustom(url: watchTestRelayBaseUrl)), findsOneWidget);\n      expect(find.text('K7M-Q2X'), findsOneWidget);")
+    replace("test/watch_together/watch_together_screen_test.dart",
+            "      await RecentRoomsService.addOrUpdateRoom('ABC234', profileId: 'p1', relayScope: relayScopeOf(null));",
+            "      await RecentRoomsService.addOrUpdateRoom('ABC234', profileId: 'p1', relayScope: relayScopeOf(watchTestRelayBaseUrl));")
+    replace("test/watch_together/watch_together_screen_test.dart",
+            "      await RecentRoomsService.renameRoom('ABC234', 'Movie night', profileId: 'p1', relayScope: relayScopeOf(null));",
+            "      await RecentRoomsService.renameRoom('ABC234', 'Movie night', profileId: 'p1', relayScope: relayScopeOf(watchTestRelayBaseUrl));")
+    replace("test/watch_together/watch_together_screen_test.dart",
+            "      expect(find.text(t.watchTogether.relayPublic), findsNothing);",
+            "      expect(find.text(t.watchTogether.relayCustom(url: watchTestRelayBaseUrl)), findsNothing);")
+    replace("test/watch_together/watch_together_screen_test.dart",
+            "      expect(find.text('K7M-Q2X'), findsNothing, reason: 'that code belongs to the public relays');",
+            "      expect(find.text('K7M-Q2X'), findsNothing, reason: 'that code belongs to a different relay');")
+    replace("test/watch_together/watch_together_screen_test.dart",
+            "  group('out of a room', () {",
+            "  group('out of a room', () {\n    _screenTest('unconfigured relay disables room actions and hides old public rooms', (tester, world) async {\n      final provider = world.guest(profileId: 'p1', relayBaseUrl: '');\n      await RecentRoomsService.addOrUpdateRoom(FakeOwpRelay.code, profileId: 'p1', relayScope: 'public');\n      await _openScreen(tester, provider);\n      expect(find.text(t.watchTogether.relayRequired), findsOneWidget);\n      expect(_enabled(tester, t.watchTogether.createRoom), isFalse);\n      expect(_enabled(tester, t.watchTogether.joinRoom), isFalse);\n      expect(find.text('K7M-Q2X'), findsNothing);\n      expect(world.relay.sent('create'), isEmpty);\n      expect(world.relay.sent('join'), isEmpty);\n    });\n")
+    replace("test/screens/settings/settings_screen_test.dart",
+            "expect(find.text(t.settings.watchTogetherRelayInvalid), findsOneWidget);",
+            "expect(find.text(t.watchTogether.independentRelayInvalid), findsOneWidget);")
+    replace("test/watch_together/watch_together_screen_test.dart",
+            "await RecentRoomsService.addOrUpdateRoom(FakeOwpRelay.code, profileId: 'p1', relayScope: relayScopeOf(null));",
+            "await RecentRoomsService.addOrUpdateRoom(FakeOwpRelay.code, profileId: 'p1', relayScope: relayScopeOf(watchTestRelayBaseUrl));", expected=3)
+    replace("test/test_helpers/fake_owp_relay.dart",
+            "    relays: owp.Relays.at('http://relay.test'),",
+            "    relays: relays,")
+    replace("test/screens/settings/settings_screen_test.dart",
+            "    await tester.enterText(find.byType(TextField), 'ws://opaque-user@relay.example.test/path?wrong=route');",
+            "    await tester.enterText(find.byType(TextField), 'https://eu.relay.openwatch.party');")
+
+
 def apply_identity() -> None:
     gradle = "android/app/build.gradle.kts"
     manifest = "android/app/src/main/AndroidManifest.xml"
@@ -353,6 +505,7 @@ def apply_identity() -> None:
     isolate_diagnostics()
     isolate_updater_asset_names()
     rebrand_media_server_identity()
+    isolate_watch_together_relays()
     for name, dimensions in (("sundock_launcher", (108, 108, 100)), ("sundock_tv_banner", (320, 180, 178))):
         output = Path("android/app/src/main/res/drawable") / f"{name}.xml"
         output.parent.mkdir(parents=True, exist_ok=True)

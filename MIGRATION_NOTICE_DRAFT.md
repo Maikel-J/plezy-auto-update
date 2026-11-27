@@ -10,6 +10,8 @@ Before uninstalling the old app, open it while connected and confirm any recent 
 
 Existing Plezy links won’t open autoPlez. After reconnecting your server, recreate any bookmarks or shared links you want the new app to open.
 
+Watch Together in the new app requires a self-hosted Open Watch Party relay. Everyone joining a room needs the same relay configured, and existing public-relay room codes and recent rooms won't carry over.
+
 Android may ask you to allow APK installs from the app that opens the initial download. That permission is per app, so autoPlez may ask separately the first time you update from inside it. Only install from the official release channel linked here.
 
 When the new app is ready, this notice will point to install instructions. Until then, there is nothing you need to install. Existing copies of the old app will not receive a push notification from edits to this page.
