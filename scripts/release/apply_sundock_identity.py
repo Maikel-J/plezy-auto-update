@@ -271,6 +271,53 @@ def isolate_updater_asset_names() -> None:
     }
 """)
 
+
+def rebrand_media_server_identity() -> None:
+    replace("lib/services/plex_auth_service.dart", "static const String _appName = 'Plezy';",
+            f"static const String _appName = '{APP_NAME}';")
+    replace("lib/models/plex/plex_config.dart", "product: product ?? 'Plezy',",
+            f"product: product ?? '{APP_NAME}',")
+    plex = "lib/services/plex_client.dart"
+    replace(plex, "headers['X-Plex-Product'] = 'Plezy';",
+            f"headers['X-Plex-Product'] = '{APP_NAME}';")
+    replace(plex, "sanitizeHeaderValue(identity.deviceName) ?? 'Plezy';",
+            f"sanitizeHeaderValue(identity.deviceName) ?? '{APP_NAME}';")
+    replace("lib/services/plex_discover_client.dart", "'X-Plex-Product': 'Plezy',",
+            f"'X-Plex-Product': '{APP_NAME}',")
+
+    header = Path("lib/services/jellyfin_auth_header.dart")
+    before = header.read_text()
+    if before.count("'Plezy") != 5:
+        raise ValueError("Unexpected Jellyfin/Emby client identity literals")
+    header.write_text(before.replace("'Plezy", f"'{APP_NAME}"))
+    test_header = Path("test/services/jellyfin_auth_header_test.dart")
+    test_header.write_text(test_header.read_text().replace("Plezy", APP_NAME))
+    test_urls = Path("test/services/jellyfin_client_urls_test.dart")
+    u = test_urls.read_text()
+    if u.count('Client="Plezy%20') != 3:
+        raise ValueError("Unexpected MediaBrowser expected client headers")
+    test_urls.write_text(u.replace('Client="Plezy%20', f'Client="{APP_NAME}%20'))
+
+    plex_test = "test/services/plex_auth_service_test.dart"
+    replace(plex_test, "  group('PlexAuthService', () {", """  group('PlexAuthService', () {
+    test('browser authorization carries the new label and retains the installation identifier', () {
+      final httpClient = MediaServerHttpClient(client: MockClient((_) async => throw StateError('Unexpected HTTP')));
+      final auth = PlexAuthService.forTesting(http: httpClient, clientIdentifier: 'rehearsal-device');
+      addTearDown(auth.dispose);
+      final uri = Uri.parse(auth.getAuthUrl('test-pin'));
+      final context = Uri.splitQueryString(uri.fragment.substring(1));
+      expect(context['context[device][product]'], 'autoPlez');
+      expect(context['clientID'], 'rehearsal-device');
+    });
+""")
+    replace(plex_test, "          hosts.add(request.url.host);\n"
+                       "          if (request.url.host == 'clients.plex.tv') {",
+            "          hosts.add(request.url.host);\n"
+            "          expect(request.headers.entries.singleWhere("
+            "(e) => e.key.toLowerCase() == 'x-plex-product').value, 'autoPlez');\n"
+            "          if (request.url.host == 'clients.plex.tv') {")
+
+
 def apply_identity() -> None:
     gradle = "android/app/build.gradle.kts"
     manifest = "android/app/src/main/AndroidManifest.xml"
@@ -305,6 +352,7 @@ def apply_identity() -> None:
     remove_legacy_launcher_art(manifest)
     isolate_diagnostics()
     isolate_updater_asset_names()
+    rebrand_media_server_identity()
     for name, dimensions in (("sundock_launcher", (108, 108, 100)), ("sundock_tv_banner", (320, 180, 178))):
         output = Path("android/app/src/main/res/drawable") / f"{name}.xml"
         output.parent.mkdir(parents=True, exist_ok=True)
