@@ -285,7 +285,16 @@ def apply_identity() -> None:
             "sundockAndroidRepository")
     replace(updates, "class UpdateService {",
             f"class UpdateService {{\n  static const String sundockAndroidRepository = '{FEED}';")
+    channel = "android/app/src/main/kotlin/com/edde746/plezy/AppUpdateChannel.kt"
+    replace(channel, "Allow installs from Plezy in Android settings",
+            f"Allow installs from {APP_NAME} in Android settings")
+    replace(channel, 'ClipData.newRawUri("Plezy update", uri)',
+            f'ClipData.newRawUri("{APP_NAME} update", uri)')
     update_test = "test/services/update_service_test.dart"
+    # GitHub-facing discovery uses the numeric version, distinct from Android's version code.
+    replace(update_test, "      ('v2.23.0+android.1', false),",
+            "      ('v2.23.0+android.1', false),\n"
+            "      ('v2.23.0+android.2', false),")
     replace(update_test, "void main() {", """void main() {
   test('the Android updater is pinned to the independent Sundock repository', () {
     expect(UpdateService.sundockAndroidRepository, 'Maikel-J/sundock-media');
