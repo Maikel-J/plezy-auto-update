@@ -1,3 +1,6 @@
+import hashlib
+import json
+import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -40,6 +43,44 @@ class UpgradeCompatibilityTest(unittest.TestCase):
     def test_rejects_changed_application_id(self):
         with self.assertRaisesRegex(ValueError, "Unexpected Android application ID"):
             self.check(new_id="com.example.other")
+
+
+    def test_226_compares_all_abis_to_225(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory)
+            (assets / "upstream-release.json").write_text(json.dumps({
+                "version": "2.26.0",
+                "repository": compat.REPOSITORY,
+                "release_tag": "v2.26.0+android.1",
+            }))
+            downloads = []
+
+            def download(*args):
+                downloads.append(args[-1])
+                Path(args[-2]).write_bytes(b"verified baseline fixture")
+
+            digest = hashlib.sha256(b"verified baseline fixture").hexdigest()
+            fake_baseline = {
+                "2.26.0": ("2.25.0", dict.fromkeys(compat.BASELINES["2.26.0"][1], digest))
+            }
+            with patch.object(compat, "BASELINES", fake_baseline), patch.object(
+                compat, "run", side_effect=download
+            ), patch.object(compat, "check_pair", return_value=(2158, 2161)) as compared:
+                compat.verify_upgrade(assets, "apksigner", "apkanalyzer")
+            self.assertEqual(compared.call_count, 3)
+            self.assertEqual(len(downloads), 3)
+            self.assertTrue(all("/releases/download/v2.25.0%2Bandroid.1/" in url for url in downloads))
+
+    def test_226_rejects_wrong_release_tag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory)
+            (assets / "upstream-release.json").write_text(json.dumps({
+                "version": "2.26.0",
+                "repository": compat.REPOSITORY,
+                "release_tag": "v2.25.0+android.1",
+            }))
+            with self.assertRaisesRegex(ValueError, "Unexpected 2.26.0 recovery plan"):
+                compat.verify_upgrade(assets, "apksigner", "apkanalyzer")
 
 
 if __name__ == "__main__":

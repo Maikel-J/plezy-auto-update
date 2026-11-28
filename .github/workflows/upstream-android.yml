@@ -253,7 +253,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Verify signed APKs can upgrade published 2.23.0
+      - name: Verify signed APKs can upgrade the pinned published baseline
         env:
           SIGNED_ASSETS: ${{ runner.temp }}/android-release-signed
         run: |
