@@ -122,6 +122,7 @@ jobs:
           scripts/codegen.sh
           git add -u
           git add assets/sundock_brand.svg android/app/src/main/res/drawable/sundock_launcher.xml android/app/src/main/res/drawable/sundock_tv_banner.xml
+          git add lib/services/trackers/tracker_registration_policy.dart test/providers/disabled_tracker_registrations_test.dart
           # Preserve the actual controlling scripts with the build tree, outside
           # .github/workflows so the archived CI recipe is never interpreted as a trigger.
           mkdir -p scripts/release/rehearsal
@@ -144,6 +145,14 @@ jobs:
             test/services/jellyfin_auth_header_test.dart test/services/jellyfin_client_urls_test.dart \
             test/services/plex_auth_service_test.dart \
             test/watch_together test/screens/settings/settings_screen_test.dart
+
+      - name: Verify inherited trackers stay disabled and catalog regressions still pass
+        run: |
+          flutter test test/providers/disabled_tracker_registrations_test.dart \
+            test/providers/trackers_provider_test.dart test/providers/trackers_provider_trakt_test.dart \
+            test/providers/catalog_sources_provider_test.dart test/widgets/rating_bottom_sheet_test.dart \
+            test/services/trackers/tracker_coordinator_manual_test.dart test/services/trackers/tracker_write_retry_test.dart \
+            test/services/trackers/simkl_scrobble_test.dart test/services/trackers/trakt_scrobble_test.dart
 
       - name: Inventory remaining old branding and upstream integrations
         run: |
@@ -212,6 +221,12 @@ jobs:
               manifest = ET.fromstring(subprocess.check_output(
                   [os.environ['APKANALYZER'], 'manifest', 'print', str(apk)], text=True,
               ))
+              for subcommand, expected in (('min-sdk', '25'), ('target-sdk', '36')):
+                  actual = subprocess.check_output(
+                      [os.environ['APKANALYZER'], 'manifest', subcommand, str(apk)], text=True,
+                  ).strip()
+                  if actual != expected:
+                      raise SystemExit(f'Unexpected Android {subcommand} in {apk}: {actual}, expected {expected}')
               with zipfile.ZipFile(apk) as archive:
                   packaged = set(archive.namelist())
               flutter_assets = 'assets/flutter_assets/assets/'
@@ -265,7 +280,7 @@ jobs:
                   'digest': 'sha256:' + digest,
                   'browser_download_url': f'https://github.com/Maikel-J/sundock-media/releases/download/v2.26.0-test/{name}',
               })
-              print(f'Verified {apk}: {app_id}, installer permission, and private updater file provider')
+              print(f'Verified {apk}: {app_id}, min SDK 25, target SDK 36, installer permission, and private updater file provider')
           target = Path(os.environ['RUNNER_TEMP']) / 'autoplez-rehearsal-assets.json'
           target.write_text(json.dumps({'assets': rehearsal_assets}))
           PY

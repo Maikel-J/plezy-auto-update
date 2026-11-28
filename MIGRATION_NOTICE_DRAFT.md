@@ -6,11 +6,13 @@ The unofficial Android updater fork is preparing a separate app called **autoPle
 
 When autoPlez is available, you will need to **install it once as a separate app**. Android does not transfer app data or sign-ins between these two app IDs. Keep the old app installed until you have signed in to the new app and checked that your libraries and playback work. On phones and tablets, Settings → Backup may help transfer some preferences. Save the file to a shared folder, then sign in and switch to the corresponding profile in the new app before importing. Use a separate file for each profile. Backup is not available on Android TV. autoPlez will have its own built-in updater for later autoPlez releases.
 
-Before uninstalling the old app, open it while connected and confirm any recent watched status or playback progress has reached your media server. Downloads saved in the old app’s default offline folder won’t move over; re-download them in the new app. Don’t assume files in a custom shared folder will be picked up automatically.
+Before uninstalling the old app, open it while connected and confirm any recent watched status or playback progress has reached your media server. Downloads saved in the old app’s default offline folder won’t move over; re-download them in the new app. If you use a custom download folder, leave it assigned to the old app and choose a different folder for autoPlez. If both apps use the same folder, re-downloading a title in autoPlez can replace the old copy.
 
 Existing Plezy links won’t open autoPlez. After reconnecting your server, recreate any bookmarks or shared links you want the new app to open.
 
 Watch Together in the new app requires a self-hosted Open Watch Party relay. Everyone joining a room needs the same relay configured, and existing public-relay room codes and recent rooms won't carry over.
+
+Trakt, MyAnimeList, AniList, Simkl and MDBList are not available in this build. Your media-server sign-ins are separate from those services.
 
 Android may ask you to allow APK installs from the app that opens the initial download. That permission is per app, so autoPlez may ask separately the first time you update from inside it. Only install from the official release channel linked here.
 

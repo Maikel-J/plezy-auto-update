@@ -479,6 +479,217 @@ def isolate_watch_together_relays() -> None:
             "    await tester.enterText(find.byType(TextField), 'https://eu.relay.openwatch.party');")
 
 
+def isolate_tracker_registrations() -> None:
+    # No provider registration has been set up for this separate Android app.
+    # Keep the integration code and stored data, but do not reach any service.
+    Path("lib/services/trackers/tracker_registration_policy.dart").write_text("""import 'package:flutter/foundation.dart' show visibleForTesting;
+
+/// Inherited tracker registrations are not configured for this app.
+abstract final class TrackerRegistrationPolicy {
+  static bool _enabled = false;
+
+  static bool get enabled => _enabled;
+
+  /// Allows the upstream tracker regression tests to exercise their code paths.
+  /// This override does not execute in a release build.
+  @visibleForTesting
+  static void debugSetEnabled(bool enabled) {
+    assert(() {
+      _enabled = enabled;
+      return true;
+    }());
+  }
+}
+""")
+    provider = "lib/providers/trackers_provider.dart"
+    coordinator = "lib/services/trackers/tracker_coordinator.dart"
+    service_info = "lib/screens/settings/tracker_service_info.dart"
+    for path, prefix in (
+        (provider, "../services/trackers/"),
+        (coordinator, ""),
+        (service_info, "../../services/trackers/"),
+    ):
+        anchor = f"import '{prefix}tracker_constants.dart';"
+        replace(path, anchor, anchor + f"\nimport '{prefix}tracker_registration_policy.dart';")
+
+    replace(provider, "    final rebinds = [for (final slot in _slots) slot.rebindGeneration];",
+            "    if (!TrackerRegistrationPolicy.enabled) return;\n"
+            "    final rebinds = [for (final slot in _slots) slot.rebindGeneration];")
+    replace(provider, "    if (isDisposed || _connecting != null || !identical(slot.session, replaces)) return false;",
+            "    if (!TrackerRegistrationPolicy.enabled) return false;\n"
+            "    if (isDisposed || _connecting != null || !identical(slot.session, replaces)) return false;")
+    replace(provider, "  Future<void> _clearAndRebind(_TrackerSlot slot) async {",
+            "  Future<void> _clearAndRebind(_TrackerSlot slot) async {\n"
+            "    if (!TrackerRegistrationPolicy.enabled) return;")
+
+    replace(coordinator, "  late final List<Tracker> _trackers = [",
+            "  List<Tracker> get _trackers => TrackerRegistrationPolicy.enabled ? _configuredTrackers : const [];\n\n"
+            "  late final List<Tracker> _configuredTrackers = [")
+    replace(coordinator, "  late final List<_ScrobbleChannel> _channels = [",
+            "  List<_ScrobbleChannel> get _channels => TrackerRegistrationPolicy.enabled ? _configuredChannels : const [];\n\n"
+            "  late final List<_ScrobbleChannel> _configuredChannels = [")
+    replace(coordinator, "for (final tracker in _trackers.whereType<RealtimeScrobbleTracker>()) _ScrobbleChannel(tracker),",
+            "for (final tracker in _configuredTrackers.whereType<RealtimeScrobbleTracker>()) _ScrobbleChannel(tracker),")
+    for signature in ("flushWriteQueue()", "purgeWriteQueueForService(TrackerService service)"):
+        line = f"  Future<void> {signature} async {{"
+        replace(coordinator, line, line + "\n    if (!TrackerRegistrationPolicy.enabled) return;")
+    replace(service_info, "  static List<TrackerServiceInfo> get all => [",
+            "  static List<TrackerServiceInfo> get all => TrackerRegistrationPolicy.enabled ? _registered : const [];\n\n"
+            "  static List<TrackerServiceInfo> get _registered => [")
+
+    for path in (
+        "test/providers/catalog_sources_provider_test.dart",
+        "test/providers/trackers_provider_test.dart",
+        "test/providers/trackers_provider_trakt_test.dart",
+        "test/services/trackers/simkl_scrobble_test.dart",
+        "test/services/trackers/tracker_coordinator_manual_test.dart",
+        "test/services/trackers/tracker_write_retry_test.dart",
+        "test/services/trackers/trakt_scrobble_test.dart",
+        "test/widgets/rating_bottom_sheet_test.dart",
+    ):
+        anchor = "import 'package:flutter_test/flutter_test.dart';"
+        replace(path, anchor, anchor + "\nimport 'package:plezy/services/trackers/tracker_registration_policy.dart';")
+        replace(path, "void main() {",
+                "void main() {\n"
+                "  setUpAll(() => TrackerRegistrationPolicy.debugSetEnabled(true));\n"
+                "  tearDownAll(() => TrackerRegistrationPolicy.debugSetEnabled(false));")
+
+    Path("test/providers/disabled_tracker_registrations_test.dart").write_text("""import 'package:flutter_test/flutter_test.dart';
+import 'package:http/testing.dart';
+import 'package:plezy/models/trackers/tracker_context.dart';
+import 'package:plezy/providers/trackers_provider.dart';
+import 'package:plezy/screens/settings/tracker_service_info.dart';
+import 'package:plezy/services/trackers/tracker_account_store.dart';
+import 'package:plezy/services/trackers/tracker_constants.dart';
+import 'package:plezy/services/trackers/tracker_coordinator.dart';
+import 'package:plezy/services/trackers/tracker_session.dart';
+import 'package:plezy/services/trackers/tracker_write_queue.dart';
+import 'package:plezy/utils/external_ids.dart';
+
+import '../test_helpers/prefs.dart';
+
+void main() {
+  setUp(resetSharedPreferencesForTest);
+
+  test('inherited trackers do not connect, hydrate accounts, or drain pending writes', () async {
+    const uuid = 'dormant-profile';
+    final services = [
+      TrackerService.mal,
+      TrackerService.anilist,
+      TrackerService.simkl,
+      TrackerService.trakt,
+      TrackerService.mdblist,
+    ];
+    for (final service in services) {
+      await trackerAccountStore(service).save(
+        uuid,
+        TrackerSession(
+          accessToken: 'stored-${service.name}',
+          refreshToken: 'stored-refresh',
+          createdAt: 1900000000,
+          expiresAt: 2000000000,
+        ),
+      );
+    }
+
+    final queue = TrackerWriteQueue();
+    final ctx = TrackerContext.movie(
+      external: const ExternalIds(tmdb: 456),
+      anime: null,
+      ratingKey: 'movie-1',
+      libraryGlobalKey: 'server-1:8',
+    );
+    await queue.enqueue(uuid, TrackerWriteQueueItem(
+      service: TrackerService.trakt,
+      watched: true,
+      ctx: ctx,
+      coalesceKey: 'pending-trakt-movie',
+      progressClaim: null,
+      watchedAtIso: '2026-05-12T00:00:00.000Z',
+    ));
+
+    var connectCalls = 0;
+    var httpCalls = 0;
+    final provider = TrackersProvider.forTesting(
+      connectPipeline: ({required logLabel, required authorize, required enrich, required save, required assign}) async {
+        connectCalls++;
+        return false;
+      },
+      httpClientFactory: () => MockClient((request) async {
+        httpCalls++;
+        throw StateError('unexpected network access: ${request.url}');
+      }),
+    );
+    addTearDown(provider.dispose);
+    final coordinator = TrackerCoordinator.instance;
+    await coordinator.initialize();
+    await provider.onActiveProfileChanged(uuid);
+
+    expect(TrackerServiceInfo.all, isEmpty);
+    expect([provider.mal, provider.anilist, provider.simkl, provider.trakt, provider.mdblist], everyElement(isNull));
+    expect([
+      provider.malCatalogClient, provider.anilistCatalogClient, provider.simklCatalogClient,
+      provider.traktCatalogClient, provider.mdblistCatalogClient,
+    ], everyElement(isNull));
+
+    final results = await Future.wait([
+      provider.connectMal(onCodeReady: (_) => fail('unexpected MAL code')),
+      provider.connectAnilist(onCodeReady: (_) => fail('unexpected AniList code')),
+      provider.connectSimkl(onCodeReady: (_) => fail('unexpected Simkl code')),
+      provider.reconnectSimkl(onCodeReady: (_) => fail('unexpected Simkl reconnect code')),
+      provider.connectTrakt(onCodeReady: (_) => fail('unexpected Trakt code')),
+      provider.connectMdblist(onCodeReady: (_) => fail('unexpected MDBList code')),
+    ]);
+    expect(results, everyElement(isFalse));
+    expect(connectCalls, 0);
+    expect(httpCalls, 0);
+
+    await coordinator.flushWriteQueue();
+    await provider.disconnectTrakt();
+    final row = (await queue.load(uuid)).single;
+    expect(row.coalesceKey, 'pending-trakt-movie');
+    expect(row.attempts, 0);
+    for (final service in services) {
+      expect((await trackerAccountStore(service).load(uuid))?.accessToken, 'stored-${service.name}');
+    }
+  });
+}
+""")
+
+
+def rebrand_copied_startup_diagnostics() -> None:
+    replace("lib/services/startup_diagnostics.dart", "      ..writeln('Plezy startup failure')",
+            f"      ..writeln('{APP_NAME} startup failure')")
+    path = "test/widgets/startup_failure_view_test.dart"
+    replace(path, "import 'package:flutter/material.dart';",
+            "import 'package:flutter/material.dart';\nimport 'package:flutter/services.dart';")
+    replace(path, "StartupFailureRecord _record() => StartupFailureRecord(",
+            "StartupFailureRecord _record(String appVersion) => StartupFailureRecord(")
+    replace(path, "  appVersion: '2.11.1',", "  appVersion: appVersion,")
+    replace(path, "  bool repairable = true,\n", "  bool repairable = true,\n  String appVersion = '2.11.1',\n")
+    replace(path, "            failure: _record(),", "            failure: _record(appVersion),")
+    case = """  testWidgets('startup failure copies the rebrand header and the available version locally', (tester) async {
+    final messenger = tester.binding.defaultBinaryMessenger;
+    String? copied;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String;
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(SystemChannels.platform, null));
+    await _pumpView(tester, restartRequired: false, appVersion: 'abc1234');
+    await tester.tap(find.byKey(startupFailureCopyKey));
+    await tester.pump();
+    expect(copied, startsWith('autoPlez startup failure\\n'));
+    expect(copied, contains('Version: abc1234\\n'));
+    expect(copied, contains('Phase: preferences\\n'));
+    expect(find.byKey(startupFailureUploadKey), findsNothing);
+  });
+
+"""
+    anchor = "  testWidgets('the ordinary failure offers retry and repair', (tester) async {"
+    replace(path, anchor, case + anchor)
+
+
 def apply_identity() -> None:
     gradle = "android/app/build.gradle.kts"
     manifest = "android/app/src/main/AndroidManifest.xml"
@@ -515,6 +726,8 @@ def apply_identity() -> None:
     isolate_updater_asset_names()
     rebrand_media_server_identity()
     isolate_watch_together_relays()
+    isolate_tracker_registrations()
+    rebrand_copied_startup_diagnostics()
     for name, dimensions in (("sundock_launcher", (108, 108, 100)), ("sundock_tv_banner", (320, 180, 178))):
         output = Path("android/app/src/main/res/drawable") / f"{name}.xml"
         output.parent.mkdir(parents=True, exist_ok=True)
